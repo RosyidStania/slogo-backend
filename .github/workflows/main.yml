@@ -1,0 +1,42 @@
+name: Auto Deploy Laravel to cPanel
+
+on:
+  push:
+    branches:
+      - main # Ubah menjadi 'master' jika branch utamamu di GitHub bernama master
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        # Versi PHP diubah menjadi 8.5 sesuai dengan Dockerfile milikmu
+        php-version: '8.5' 
+
+    - name: Install Composer Dependencies
+      # Mengunduh folder vendor untuk produksi
+      run: composer install --optimize-autoloader --no-dev
+
+    - name: Sync Files to Hosting via FTP
+      uses: SamKirkland/FTP-Deploy-Action@v4.3.4
+      with:
+        server: ${{ secrets.FTP_SERVER }}
+        username: ${{ secrets.FTP_USERNAME }}
+        password: ${{ secrets.FTP_PASSWORD }}
+        server-dir: /
+        # Mengecualikan file Docker agar tidak ikut dikirim ke hosting
+        exclude: |
+          **/.git*
+          **/.git*/**
+          **/node_modules/**
+          tests/**
+          .env.example
+          README.md
+          docker-compose.yml
+          Dockerfile
