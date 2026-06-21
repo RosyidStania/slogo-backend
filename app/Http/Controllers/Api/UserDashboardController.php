@@ -76,17 +76,18 @@ class UserDashboardController extends Controller
             ->where('generus_id', $generusId)
             ->get()
             ->sortByDesc(function ($att) {
-                return $att->event->date;
+                return $att->event->event_date;
             })
             ->values()
             ->map(function ($att) {
                 return [
                     'id' => $att->id,
-                    'date' => $att->event->date,
+                    'date' => $att->event->event_date,
                     'event_name' => $att->event->name,
                     'event_type' => $att->event->eventType->name ?? 'Kegiatan',
                     'status' => $att->status,
-                    'keterangan' => $att->keterangan,
+                    'time_arrived' => $att->time_arrived,
+                    'is_late' => $att->is_late,
                 ];
             });
 
