@@ -253,11 +253,10 @@ class GenerusController extends Controller
         
         \Illuminate\Support\Facades\DB::transaction(function () {
             // Hapus semua absensi terlebih dahulu karena berhubungan erat dengan data Generus
-            // (Jika Generus dihapus tapi absensi tidak, data absensi akan menjadi "sampah" / orphaned data)
-            \App\Models\Attendance::truncate();
+            \App\Models\Attendance::query()->delete();
             
-            // Hapus generus (bisa gunakan truncate karena absensi sudah kosong)
-            Generus::truncate();
+            // Hapus generus (gunakan delete() bukan truncate() agar tidak terkena error Foreign Key Constraint di MySQL)
+            Generus::query()->delete();
 
             // Sesuai permintaan: Hapus semua user selain Admin
             \App\Models\User::where('role', '!=', 'admin')->delete();
