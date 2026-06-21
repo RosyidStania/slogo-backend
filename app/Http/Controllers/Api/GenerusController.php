@@ -36,8 +36,8 @@ class GenerusController extends Controller
         // Ambil nilai jenjang (jadikan huruf kecil semua untuk pengecekan)
         $jenjang = strtolower($request->jenjang ?? '');
 
-        // LOGIKA BARU: Otomatis buat User jika jenjang mengandung kata-kata usia praremaja ke atas
-        $isRemajaKeAtas = preg_match('/(praremaja|remaja|usman|smp|sma|smk|mahasiswa|kuliah|kerja)/i', $jenjang);
+        // LOGIKA BARU: Otomatis buat User untuk SEMUA jenjang (termasuk PAUD) agar ortu bisa memantau
+        $isRemajaKeAtas = true; // Selalu true untuk membuat akun
 
         if ($isRemajaKeAtas) {
             $baseUsername = strtolower(str_replace(' ', '', $request->nama_lengkap));
@@ -121,7 +121,8 @@ class GenerusController extends Controller
                     if (empty($row['nama_lengkap'])) continue;
 
                     $jenjang = strtolower($row['jenjang'] ?? '');
-                    $isRemajaKeAtas = preg_match('/(praremaja|remaja|usman|smp|sma|smk|mahasiswa|kuliah|kerja)/i', $jenjang);
+                    // LOGIKA BARU: Otomatis buat User untuk SEMUA jenjang agar ortu bisa memantau
+                    $isRemajaKeAtas = true; 
                     $userId = null;
 
                     // Otomatis buat akun user jika usianya mencukupi
