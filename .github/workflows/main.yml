@@ -30,7 +30,7 @@ jobs:
         username: ${{ secrets.FTP_USERNAME }}
         password: ${{ secrets.FTP_PASSWORD }}
         server-dir: /
-        # Mengecualikan file Docker agar tidak ikut dikirim ke hosting
+        # Mengecualikan file Docker, folder .git, dan vendor agar proses secepat kilat
         exclude: |
           **/.git*
           **/.git*/**
@@ -40,3 +40,4 @@ jobs:
           README.md
           docker-compose.yml
           Dockerfile
+          vendor/**
