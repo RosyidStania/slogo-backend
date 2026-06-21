@@ -26,7 +26,7 @@ class UserDashboardController extends Controller
         // Hitung total kehadiran global
         $totalKehadiran = Attendance::where('generus_id', $generusId)->count();
         $totalHadir = Attendance::where('generus_id', $generusId)->where('status', 'hadir')->count();
-        $totalAlfa = Attendance::where('generus_id', $generusId)->where('status', 'alfa')->count();
+        $totalAlfa = Attendance::where('generus_id', $generusId)->where('status', 'alpa')->count();
         $totalIzin = Attendance::where('generus_id', $generusId)->where('status', 'izin')->count();
         $totalSakit = Attendance::where('generus_id', $generusId)->where('status', 'sakit')->count();
 
@@ -45,7 +45,7 @@ class UserDashboardController extends Controller
             $alfa = Attendance::where('generus_id', $generusId)
                 ->whereHas('event', function($q) use ($typeId) {
                     $q->where('event_type_id', $typeId);
-                })->where('status', 'alfa')->count();
+                })->where('status', 'alpa')->count();
 
             $izin = Attendance::where('generus_id', $generusId)
                 ->whereHas('event', function($q) use ($typeId) {
