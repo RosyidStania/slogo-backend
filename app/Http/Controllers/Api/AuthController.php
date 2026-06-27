@@ -53,7 +53,49 @@ class AuthController extends Controller
     {
         return response()->json([
             'success' => true,
-            'user' => $request->user()
+            'user' => $request->user()->load('generus')
+        ]);
+    }
+
+    public function updateProfile(Request $request)
+    {
+        $user = $request->user();
+
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'username' => 'required|string|max:255|unique:users,username,' . $user->id,
+            'tempat_lahir' => 'nullable|string|max:255',
+            'tanggal_lahir' => 'nullable|date',
+            'jenis_kelamin' => 'nullable|in:L,P',
+            'nama_ayah' => 'nullable|string|max:255',
+            'nama_ibu' => 'nullable|string|max:255',
+            'no_hp' => 'nullable|string|max:20',
+            'akun_media' => 'nullable|string|max:255',
+            'hobi' => 'nullable|string|max:255',
+        ]);
+
+        $user->name = $request->name;
+        $user->username = strtolower($request->username);
+        $user->save();
+
+        if ($user->generus) {
+            $user->generus->update([
+                'nama_lengkap' => $request->name,
+                'tempat_lahir' => $request->tempat_lahir,
+                'tanggal_lahir' => $request->tanggal_lahir,
+                'jenis_kelamin' => $request->jenis_kelamin,
+                'nama_ayah' => $request->nama_ayah,
+                'nama_ibu' => $request->nama_ibu,
+                'no_hp' => $request->no_hp,
+                'akun_media' => $request->akun_media,
+                'hobi' => $request->hobi,
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Profil berhasil diupdate.',
+            'user' => $user->load('generus')
         ]);
     }
 

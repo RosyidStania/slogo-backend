@@ -60,6 +60,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ------------------------------------------
     Route::middleware('role:user')->group(function () {
         Route::get('/user/profile', [AuthController::class, 'profile']);
+        Route::put('/user/profile', [AuthController::class, 'updateProfile']);
         Route::get('/user/report', [\App\Http\Controllers\Api\UserDashboardController::class, 'report']);
     });
 });
