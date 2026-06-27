@@ -74,6 +74,8 @@ class AuthController extends Controller
             'hobi' => 'nullable|string|max:255',
             'keterangan' => 'nullable|string|max:255',
             'libur' => 'nullable|string|max:255',
+            'kelompok' => 'nullable|string|max:255',
+            'jenjang' => 'nullable|string|max:255',
         ]);
 
         $user->name = $request->name;
@@ -93,6 +95,8 @@ class AuthController extends Controller
                 'hobi' => $request->hobi,
                 'keterangan' => $request->keterangan,
                 'libur' => $request->libur,
+                'kelompok' => $request->kelompok,
+                'jenjang' => $request->jenjang,
             ]);
         }
 
