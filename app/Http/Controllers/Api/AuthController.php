@@ -72,6 +72,8 @@ class AuthController extends Controller
             'no_hp' => 'nullable|string|max:20',
             'akun_media' => 'nullable|string|max:255',
             'hobi' => 'nullable|string|max:255',
+            'keterangan' => 'nullable|string|max:255',
+            'libur' => 'nullable|string|max:255',
         ]);
 
         $user->name = $request->name;
@@ -89,6 +91,8 @@ class AuthController extends Controller
                 'no_hp' => $request->no_hp,
                 'akun_media' => $request->akun_media,
                 'hobi' => $request->hobi,
+                'keterangan' => $request->keterangan,
+                'libur' => $request->libur,
             ]);
         }
 
@@ -103,7 +107,7 @@ class AuthController extends Controller
     {
         $request->validate([
             'old_password' => 'required',
-            'new_password' => 'required|min:6' // in a real app might need |confirmed
+            'new_password' => 'required|min:6|confirmed'
         ]);
 
         $user = $request->user();
