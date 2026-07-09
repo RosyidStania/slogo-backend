@@ -56,6 +56,7 @@ class ReportController extends Controller
         $generusQuery = Generus::orderByRaw("CASE WHEN status = 'Aktif' THEN 1 ELSE 2 END")
             ->orderBy('kelompok')
             ->orderByRaw("CASE 
+                WHEN jenjang = 'MT' THEN 0
                 WHEN jenjang = 'USMAN' THEN 1 
                 WHEN jenjang = '3 SMA/SMK' THEN 2 
                 WHEN jenjang = '2 SMA/SMK' THEN 3 

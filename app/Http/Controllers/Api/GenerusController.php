@@ -155,7 +155,7 @@ class GenerusController extends Controller
                     elseif (in_array($rawJenjang, ['3 SMA', '3 SMK'])) $rawJenjang = '3 SMA/SMK';
                     elseif (in_array($rawJenjang, ['MAHASISWA', 'KULIAH', 'KERJA', 'LULUS'])) $rawJenjang = 'USMAN';
                     
-                    $daftarResmi = ['PAUD', 'TK', '1 SD', '2 SD', '3 SD', '4 SD', '5 SD', '6 SD', '1 SMP', '2 SMP', '3 SMP', '1 SMA/SMK', '2 SMA/SMK', '3 SMA/SMK', 'USMAN'];
+                    $daftarResmi = ['PAUD', 'TK', '1 SD', '2 SD', '3 SD', '4 SD', '5 SD', '6 SD', '1 SMP', '2 SMP', '3 SMP', '1 SMA/SMK', '2 SMA/SMK', '3 SMA/SMK', 'USMAN', 'MT'];
                     $finalJenjang = in_array($rawJenjang, $daftarResmi) ? $rawJenjang : null;
 
                     \App\Models\Generus::create([
