@@ -22,7 +22,7 @@ class AdminUserController extends Controller
             'name'     => 'required|string|max:255',
             'username' => 'required|string|unique:users,username|max:255',
             'password' => 'required|string|min:6',
-            'role'     => 'required|in:admin,user',
+            'role'     => 'required|in:admin,user,mt',
             'generus_id' => 'nullable|integer'
         ]);
 
@@ -37,7 +37,7 @@ class AdminUserController extends Controller
             'role'     => $request->role,
         ]);
 
-        if ($request->generus_id && $request->role === 'user') {
+        if ($request->generus_id && in_array($request->role, ['user', 'mt'])) {
             \App\Models\Generus::where('id', $request->generus_id)->update(['user_id' => $user->id]);
         }
 
@@ -52,7 +52,7 @@ class AdminUserController extends Controller
         $validator = Validator::make($request->all(), [
             'name'     => 'required|string|max:255',
             'username' => 'required|string|max:255|unique:users,username,'.$id,
-            'role'     => 'required|in:admin,user',
+            'role'     => 'required|in:admin,user,mt',
             'password' => 'nullable|string|min:6', // Password opsional saat edit
             'generus_id' => 'nullable|integer'
         ]);
@@ -70,14 +70,14 @@ class AdminUserController extends Controller
         
         $user->save();
 
-        if ($request->role === 'user') {
+        if ($request->role === 'user' || $request->role === 'mt') {
             if ($request->has('generus_id')) {
                 \App\Models\Generus::where('user_id', $user->id)->update(['user_id' => null]);
                 if ($request->generus_id) {
                     \App\Models\Generus::where('id', $request->generus_id)->update(['user_id' => $user->id]);
                 }
             }
-        } else {
+        } elseif ($request->role !== 'mt') {
             \App\Models\Generus::where('user_id', $user->id)->update(['user_id' => null]);
         }
 
@@ -132,11 +132,13 @@ class AdminUserController extends Controller
             // Password: nama depan + 123
             $password = $firstName . '123';
 
+            $role = strtoupper($generus->jenjang) === 'MT' ? 'mt' : 'user';
+
             $user = User::create([
                 'name'     => $generus->nama_lengkap,
                 'username' => $username,
                 'password' => Hash::make($password),
-                'role'     => 'user',
+                'role'     => $role,
             ]);
 
             // Update generus dengan user_id yang baru dibuat

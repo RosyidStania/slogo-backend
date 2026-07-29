@@ -10,8 +10,8 @@ class RoleMiddleware
 {
     public function handle(Request $request, Closure $next, $role): Response
     {
-        // Cek apakah user sudah login dan memiliki role yang sesuai
-        if ($request->user() && $request->user()->role === $role) {
+        $allowedRoles = array_map('trim', explode(',', $role));
+        if ($request->user() && in_array($request->user()->role, $allowedRoles)) {
             return $next($request);
         }
 

@@ -49,11 +49,13 @@ class GenerusController extends Controller
                 $counter++;
             }
 
+            $role = strtoupper($request->jenjang ?? '') === 'MT' ? 'mt' : 'user';
+
             $user = User::create([
                 'name'     => $request->nama_lengkap,
                 'username' => $username,
                 'password' => Hash::make($baseUsername . '123'), // Password: namatanpaspasi123
-                'role'     => 'user',
+                'role'     => $role,
             ]);
             $userId = $user->id;
         }
@@ -136,11 +138,13 @@ class GenerusController extends Controller
                         }
                         $existingUsernames[$username] = true; // Tambahkan ke memori lokal
 
+                        $role = strtoupper($row['jenjang'] ?? '') === 'MT' ? 'mt' : 'user';
+
                         $user = \App\Models\User::create([
                             'name'     => $row['nama_lengkap'],
                             'username' => $username,
                             'password' => \Illuminate\Support\Facades\Hash::make($baseUsername . '123'),
-                            'role'     => 'user',
+                            'role'     => $role,
                         ]);
                         $userId = $user->id;
                     }

@@ -22,8 +22,11 @@ return [
         'https://desaslogo.my.id',
         'https://www.desaslogo.my.id',
         'http://localhost:5174',   
-        'http://127.0.0.1:5174',   
+        'https://api.generusdsslogo.my.id',   
+        'https://generusdsslogo.my.id',
+        'https://www.generusdsslogo.my.id',
         'http://localhost:3000'
+        
     ],
     'allowed_origins_patterns' => [
         '#^https://.*\.vercel\.app$#' // Mengizinkan semua subdomain vercel.app

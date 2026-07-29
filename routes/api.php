@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\AttendanceController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\EventTypeController;
 use App\Http\Controllers\Api\ReportController;
+use App\Http\Controllers\Api\MtController;
 // ==========================================
 // PUBLIC ROUTES (Tidak Perlu Login)
 // ==========================================
@@ -56,11 +57,21 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     // ------------------------------------------
-    // KHUSUS USER (Generus)
+    // KHUSUS USER (Generus) & MT
     // ------------------------------------------
-    Route::middleware('role:user')->group(function () {
+    Route::middleware('role:user,mt')->group(function () {
         Route::get('/user/profile', [AuthController::class, 'profile']);
         Route::put('/user/profile', [AuthController::class, 'updateProfile']);
         Route::get('/user/report', [\App\Http\Controllers\Api\UserDashboardController::class, 'report']);
+    });
+
+    // ------------------------------------------
+    // KHUSUS MT
+    // ------------------------------------------
+    Route::middleware('role:mt')->group(function () {
+        Route::get('/mt/group-members', [MtController::class, 'groupMembers']);
+        Route::put('/mt/group-members/{id}', [MtController::class, 'updateMember']);
+        Route::get('/mt/group-attendance', [MtController::class, 'groupAttendance']);
+        Route::get('/mt/group-statistics', [MtController::class, 'groupStatistics']);
     });
 });
