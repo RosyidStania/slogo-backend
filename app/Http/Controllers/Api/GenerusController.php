@@ -85,6 +85,19 @@ class GenerusController extends Controller
         if ($validator->fails()) return response()->json(['success' => false, 'message' => $validator->errors()], 422);
 
         $generus->update($request->all());
+
+        // Update the user's role and name if they have an associated user
+        if ($generus->user_id) {
+            $user = User::find($generus->user_id);
+            if ($user && $user->role !== 'admin') {
+                $newRole = strtoupper($request->jenjang ?? '') === 'MT' ? 'mt' : 'user';
+                $user->update([
+                    'role' => $newRole,
+                    'name' => $request->nama_lengkap
+                ]);
+            }
+        }
+
         return response()->json(['success' => true, 'message' => 'Data Generus berhasil diupdate', 'data' => $generus], 200);
     }
 
