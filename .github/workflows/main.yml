@@ -16,8 +16,8 @@ jobs:
     - name: Setup PHP
       uses: shivammathur/setup-php@v2
       with:
-        # Versi PHP disesuaikan dengan composer.json (8.3)
-        php-version: '8.3' 
+        # Versi PHP diubah ke 8.4 untuk menyesuaikan dengan composer.lock
+        php-version: '8.4' 
 
     - name: Install Composer Dependencies
       # Mengunduh folder vendor untuk produksi
