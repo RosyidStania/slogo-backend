@@ -8,17 +8,16 @@ use Symfony\Component\HttpFoundation\Response;
 
 class RoleMiddleware
 {
-    public function handle(Request $request, Closure $next, $role): Response
+    public function handle(Request $request, Closure $next, ...$roles): Response
     {
-        $allowedRoles = array_map('trim', explode(',', $role));
-        if ($request->user() && in_array($request->user()->role, $allowedRoles)) {
+        if ($request->user() && in_array($request->user()->role, $roles)) {
             return $next($request);
         }
 
         // Jika rolenya salah (misal User mencoba akses halaman Admin)
         return response()->json([
             'success' => false,
-            'message' => 'Akses ditolak. Anda bukan ' . $role
+            'message' => 'Akses ditolak. Anda bukan ' . implode(' atau ', $roles)
         ], 403);
     }
 }

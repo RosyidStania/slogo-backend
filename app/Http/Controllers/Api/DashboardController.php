@@ -75,7 +75,9 @@ class DashboardController extends Controller
 
             // 5. Peringkat Kehadiran Individu (Top 5 Tahun Ini)
             $topAttendees = Attendance::where('status', 'hadir')
-                ->whereYear('created_at', Carbon::now()->year)
+                ->whereHas('event', function($q) {
+                    $q->whereYear('event_date', Carbon::now()->year);
+                })
                 ->select('generus_id', DB::raw('count(*) as total_hadir'))
                 ->groupBy('generus_id')
                 ->orderBy('total_hadir', 'desc')

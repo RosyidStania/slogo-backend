@@ -91,8 +91,12 @@ class MtController extends Controller
         
         if ($generus->user_id) {
             $user = User::find($generus->user_id);
-            if ($user) {
-                $user->update(['name' => $validated['nama_lengkap']]);
+            if ($user && $user->role !== 'admin') {
+                $newRole = strtoupper($validated['jenjang'] ?? '') === 'MT' ? 'mt' : 'user';
+                $user->update([
+                    'name' => $validated['nama_lengkap'],
+                    'role' => $newRole,
+                ]);
             }
         }
 
