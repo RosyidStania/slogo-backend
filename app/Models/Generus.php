@@ -5,6 +5,7 @@ namespace App\Models;
 // Tambahkan baris import ini
 use Illuminate\Database\Eloquent\Factories\HasFactory; 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
 class Generus extends Model
 {
@@ -15,8 +16,19 @@ class Generus extends Model
     protected $fillable = [
         'user_id', 'nama_lengkap', 'kelompok', 'status', 'tempat_lahir', 'tanggal_lahir', 
         'umur', 'jenis_kelamin', 'jenjang', 'keterangan', 'libur', 
-        'nama_ayah', 'nama_ibu', 'no_hp', 'akun_media', 'hobi'
+        'nama_ayah', 'nama_ibu', 'no_hp', 'akun_media', 'hobi', 'kode_unik'
     ];
+
+    protected static function boot()
+    {
+        parent::boot();
+
+        static::creating(function ($model) {
+            if (empty($model->kode_unik)) {
+                $model->kode_unik = 'GEN-' . strtoupper(Str::random(8));
+            }
+        });
+    }
 
     public function user()
     {

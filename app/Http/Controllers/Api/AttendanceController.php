@@ -61,10 +61,21 @@ class AttendanceController extends Controller
     {
         try {
             foreach ($request->attendances as $att) {
-                Attendance::updateOrCreate(
-                    ['event_id' => $att['event_id'], 'generus_id' => $att['generus_id']],
-                    ['status' => $att['status'], 'time_arrived' => $att['time_arrived'], 'is_late' => $att['is_late']]
-                );
+                $generusId = $att['generus_id'] ?? null;
+                
+                if (!$generusId && !empty($att['kode_unik'])) {
+                    $generus = \App\Models\Generus::where('kode_unik', $att['kode_unik'])->first();
+                    if ($generus) {
+                        $generusId = $generus->id;
+                    }
+                }
+
+                if ($generusId) {
+                    Attendance::updateOrCreate(
+                        ['event_id' => $att['event_id'], 'generus_id' => $generusId],
+                        ['status' => $att['status'], 'time_arrived' => $att['time_arrived'], 'is_late' => $att['is_late']]
+                    );
+                }
             }
             return response()->json(['success' => true], 200);
         } catch (\Illuminate\Database\QueryException $e) {
@@ -88,5 +99,48 @@ class AttendanceController extends Controller
         } catch (Exception $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
+    }
+
+    // Export Absensi
+    public function exportCsv($eventId)
+    {
+        $event = Event::find($eventId);
+        if (!$event) {
+            return response()->json(['success' => false, 'message' => 'Acara tidak ditemukan'], 404);
+        }
+
+        $fileName = 'rekapan_absensi_' . str_replace(' ', '_', strtolower($event->nama_event)) . '_' . date('Ymd_His') . '.csv';
+        $attendances = Attendance::with('generus')->where('event_id', $eventId)->get();
+
+        $headers = [
+            "Content-type"        => "text/csv; charset=UTF-8",
+            "Content-Disposition" => "attachment; filename=$fileName",
+            "Pragma"              => "no-cache",
+            "Cache-Control"       => "must-revalidate, post-check=0, pre-check=0",
+            "Expires"             => "0"
+        ];
+
+        $columns = ['ID Acara', 'Kode Unik Peserta', 'ID Peserta (Abaikan saat import)', 'Nama Lengkap', 'Status Kehadiran', 'Waktu Datang', 'Terlambat'];
+
+        $callback = function() use($attendances, $event, $columns) {
+            $file = fopen('php://output', 'w');
+            fputs($file, "\xEF\xBB\xBF");
+            fputcsv($file, $columns, ';');
+
+            foreach ($attendances as $att) {
+                fputcsv($file, [
+                    $att->event_id,
+                    $att->generus ? $att->generus->kode_unik : '',
+                    $att->generus_id,
+                    $att->generus ? $att->generus->nama_lengkap : '',
+                    $att->status,
+                    $att->time_arrived,
+                    $att->is_late ? 'Ya' : 'Tidak'
+                ], ';');
+            }
+            fclose($file);
+        };
+
+        return response()->stream($callback, 200, $headers);
     }
 }

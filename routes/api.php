@@ -47,6 +47,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('admin/users/generate-from-generus', [AdminUserController::class, 'generateFromGenerus']);
         Route::apiResource('admin/users', AdminUserController::class);
         Route::get('admin/events/{id}/summary', [AttendanceController::class, 'summary']);
+        Route::get('admin/attendance/export/{eventId}', [AttendanceController::class, 'exportCsv']);
         Route::post('admin/attendance', [AttendanceController::class, 'store']);
         Route::post('admin/attendance/bulk', [AttendanceController::class, 'bulkStore']);
         Route::delete('admin/attendance/{eventId}/{generusId}', [AttendanceController::class, 'destroy']);

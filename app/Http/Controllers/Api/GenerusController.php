@@ -175,7 +175,7 @@ class GenerusController extends Controller
                     $daftarResmi = ['PAUD', 'TK', '1 SD', '2 SD', '3 SD', '4 SD', '5 SD', '6 SD', '1 SMP', '2 SMP', '3 SMP', '1 SMA/SMK', '2 SMA/SMK', '3 SMA/SMK', 'USMAN', 'MT'];
                     $finalJenjang = in_array($rawJenjang, $daftarResmi) ? $rawJenjang : null;
 
-                    \App\Models\Generus::create([
+                    $createData = [
                         'nama_lengkap'  => $row['nama_lengkap'],
                         'kelompok'      => $row['kelompok'] ?: 'Slogo',
                         'status'        => $status,
@@ -192,7 +192,13 @@ class GenerusController extends Controller
                         'akun_media'    => $row['akun_media'] ?? null,
                         'hobi'          => $row['hobi'] ?? null,
                         'user_id'       => $userId,
-                    ]);
+                    ];
+                    
+                    if (!empty($row['kode_unik'])) {
+                        $createData['kode_unik'] = $row['kode_unik'];
+                    }
+
+                    \App\Models\Generus::create($createData);
                     
                     $count++;
                 }
@@ -296,7 +302,7 @@ class GenerusController extends Controller
             "Expires"             => "0"
         ];
 
-        $columns = ['ID', 'Nama Lengkap', 'Kelompok', 'Status', 'Tempat Lahir', 'Tanggal Lahir', 'Umur', 'Jenis Kelamin', 'Jenjang', 'Keterangan', 'Libur', 'Nama Ayah', 'Nama Ibu', 'No HP', 'Akun Media', 'Hobi', 'Dibuat Pada'];
+        $columns = ['ID', 'Kode Unik', 'Nama Lengkap', 'Kelompok', 'Status', 'Tempat Lahir', 'Tanggal Lahir', 'Umur', 'Jenis Kelamin', 'Jenjang', 'Keterangan', 'Libur', 'Nama Ayah', 'Nama Ibu', 'No HP', 'Akun Media', 'Hobi', 'Dibuat Pada'];
 
         $callback = function() use($generus, $columns) {
             $file = fopen('php://output', 'w');
@@ -308,6 +314,7 @@ class GenerusController extends Controller
             foreach ($generus as $g) {
                 fputcsv($file, [
                     $g->id,
+                    $g->kode_unik,
                     $g->nama_lengkap,
                     $g->kelompok,
                     $g->status,
