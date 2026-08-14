@@ -8,6 +8,9 @@ use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\File;
+use SimpleSoftwareIO\QrCode\Facades\QrCode;
+use ZipArchive;
 
 class GenerusController extends Controller
 {
@@ -337,5 +340,64 @@ class GenerusController extends Controller
         };
 
         return response()->stream($callback, 200, $headers);
+    }
+
+    public function downloadQrZip()
+    {
+        // 1. Ambil data generus yang aktif
+        $generus = Generus::where('status', 'aktif')->get();
+
+        if ($generus->isEmpty()) {
+            return response()->json(['success' => false, 'message' => 'Tidak ada data generus aktif.'], 404);
+        }
+
+        // 2. Buat direktori temporary untuk zip
+        $tempDir = storage_path('app/temp_qr_' . time());
+        File::makeDirectory($tempDir, 0755, true, true);
+
+        // 3. Looping data dan buat QR dalam subfolder sesuai kelompok
+        foreach ($generus as $g) {
+            $kelompok = preg_replace('/[^A-Za-z0-9\-]/', '_', $g->kelompok ?: 'Umum');
+            $nama = preg_replace('/[^A-Za-z0-9\-]/', '_', $g->nama_lengkap);
+            $kode = $g->kode_unik ?: ('GEN-' . $g->id);
+            
+            $folderPath = $tempDir . DIRECTORY_SEPARATOR . $kelompok;
+            if (!File::exists($folderPath)) {
+                File::makeDirectory($folderPath, 0755, true, true);
+            }
+
+            $fileName = $nama . '_' . $kelompok . '_' . $kode . '.svg';
+            $filePath = $folderPath . DIRECTORY_SEPARATOR . $fileName;
+
+            // Konten QR disesuaikan dengan frontend
+            $qrContent = 'SLOGO-GEN-' . $g->id;
+            
+            // Simpan QR sebagai format SVG karena default simple-qrcode dan didukung banyak image viewer (serta tidak perlu imagick)
+            QrCode::size(300)->margin(1)->generate($qrContent, $filePath);
+        }
+
+        // 4. Buat Zip file
+        $zipFileName = 'QR_Generus_Aktif_' . date('Ymd_His') . '.zip';
+        $zipFilePath = storage_path('app/' . $zipFileName);
+
+        $zip = new ZipArchive;
+        if ($zip->open($zipFilePath, ZipArchive::CREATE) === TRUE) {
+            // Rekursif menambah direktori dan file ke zip
+            $files = File::allFiles($tempDir);
+            foreach ($files as $file) {
+                $relativePath = str_replace($tempDir . DIRECTORY_SEPARATOR, '', $file->getPathname());
+                $zip->addFile($file->getPathname(), $relativePath);
+            }
+            $zip->close();
+        } else {
+            File::deleteDirectory($tempDir);
+            return response()->json(['success' => false, 'message' => 'Gagal membuat file ZIP.'], 500);
+        }
+
+        // 5. Bersihkan direktori temporary
+        File::deleteDirectory($tempDir);
+
+        // 6. Return response download dan hapus file zip setelah didownload
+        return response()->download($zipFilePath)->deleteFileAfterSend(true);
     }
 }

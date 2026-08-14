@@ -38,6 +38,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('admin/generus/promote', [\App\Http\Controllers\Api\GenerusController::class, 'promoteAll']);
         Route::post('admin/generus/demote', [\App\Http\Controllers\Api\GenerusController::class, 'demoteAll']);
         Route::post('admin/generus/import', [\App\Http\Controllers\Api\GenerusController::class, 'import']);
+        Route::get('admin/generus/download-qr', [\App\Http\Controllers\Api\GenerusController::class, 'downloadQrZip']);
         Route::get('admin/generus/export', [\App\Http\Controllers\Api\GenerusController::class, 'exportCsv']);
         Route::delete('admin/generus/destroy-all', [\App\Http\Controllers\Api\GenerusController::class, 'destroyAll']);
         Route::apiResource('admin/generus', \App\Http\Controllers\Api\GenerusController::class);
