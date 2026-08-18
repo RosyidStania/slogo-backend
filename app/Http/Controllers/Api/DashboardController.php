@@ -12,7 +12,7 @@ use Carbon\Carbon;
 
 class DashboardController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
         try {
             // 1. Hitung Metrik Utama
@@ -73,13 +73,20 @@ class DashboardController extends Controller
                                    ->take(3)
                                    ->get();
 
+            $eventTypeIds = $request->input('event_type_ids', []);
+
             // 5. Peringkat Kehadiran Individu (Top 5 Tahun Ini)
-            $topAttendees = Attendance::where('status', 'hadir')
-                ->whereHas('event', function($q) {
-                    $q->whereYear('event_date', Carbon::now()->year);
-                })
-                ->select('generus_id', DB::raw('count(*) as total_hadir'))
-                ->groupBy('generus_id')
+            $topAttendeesQuery = Attendance::where('attendances.status', 'hadir')
+                ->join('events', 'attendances.event_id', '=', 'events.id')
+                ->whereYear('events.event_date', Carbon::now()->year);
+
+            if (!empty($eventTypeIds)) {
+                $topAttendeesQuery->whereIn('events.event_type_id', $eventTypeIds);
+            }
+
+            $topAttendees = $topAttendeesQuery
+                ->select('attendances.generus_id', DB::raw('count(attendances.id) as total_hadir'))
+                ->groupBy('attendances.generus_id')
                 ->orderBy('total_hadir', 'desc')
                 ->take(5)
                 ->with('generus:id,nama_lengkap,kelompok,jenjang')
@@ -94,10 +101,17 @@ class DashboardController extends Controller
                 });
 
             // 6. Peringkat Kelompok Paling Aktif (Top 5 Tahun Ini)
-            $topGroups = Attendance::where('attendances.status', 'hadir')
-                ->whereYear('attendances.created_at', Carbon::now()->year)
-                ->join('generus', 'attendances.generus_id', '=', 'generus.id')
-                ->select('generus.kelompok', DB::raw('count(*) as total_hadir'))
+            $topGroupsQuery = Attendance::where('attendances.status', 'hadir')
+                ->join('events', 'attendances.event_id', '=', 'events.id')
+                ->whereYear('events.event_date', Carbon::now()->year)
+                ->join('generus', 'attendances.generus_id', '=', 'generus.id');
+
+            if (!empty($eventTypeIds)) {
+                $topGroupsQuery->whereIn('events.event_type_id', $eventTypeIds);
+            }
+
+            $topGroups = $topGroupsQuery
+                ->select('generus.kelompok', DB::raw('count(attendances.id) as total_hadir'))
                 ->groupBy('generus.kelompok')
                 ->orderBy('total_hadir', 'desc')
                 ->take(5)
