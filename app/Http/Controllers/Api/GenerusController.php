@@ -24,6 +24,7 @@ class GenerusController extends Controller
             'jenis_kelamin' => 'required|in:L,P',
             'kelompok'      => 'nullable|string|max:255',
             'jenjang'       => 'nullable|string|max:255',
+            'is_pengurus'   => 'nullable|boolean',
             'status'        => 'required|in:aktif,tidak aktif,pasif', // nonaktif diubah jadi tidak aktif
         ]);
 
@@ -62,6 +63,7 @@ class GenerusController extends Controller
 
         $dataGenerus = $request->all();
         $dataGenerus['user_id'] = $userId;
+        $dataGenerus['is_pengurus'] = $request->boolean('is_pengurus');
         
         // Create Data Generus
         $generus = Generus::create($dataGenerus);
@@ -79,12 +81,15 @@ class GenerusController extends Controller
             'jenis_kelamin' => 'required|in:L,P',
             'kelompok'      => 'nullable|string|max:255',
             'jenjang'       => 'nullable|string|max:255',
+            'is_pengurus'   => 'nullable|boolean',
             'status'        => 'required|in:aktif,tidak aktif,pasif',
         ]);
 
         if ($validator->fails()) return response()->json(['success' => false, 'message' => $validator->errors()], 422);
 
-        $generus->update($request->all());
+        $updateData = $request->all();
+        $updateData['is_pengurus'] = $request->boolean('is_pengurus');
+        $generus->update($updateData);
 
         // Update the user's role and name if they have an associated user
         if ($generus->user_id) {
@@ -302,7 +307,7 @@ class GenerusController extends Controller
             "Expires"             => "0"
         ];
 
-        $columns = ['ID', 'Kode Unik', 'Nama Lengkap', 'Kelompok', 'Status', 'Tempat Lahir', 'Tanggal Lahir', 'Umur', 'Jenis Kelamin', 'Jenjang', 'Keterangan', 'Libur', 'Nama Ayah', 'Nama Ibu', 'No HP', 'Akun Media', 'Hobi', 'Dibuat Pada'];
+        $columns = ['ID', 'Kode Unik', 'Nama Lengkap', 'Kelompok', 'Status', 'Tempat Lahir', 'Tanggal Lahir', 'Umur', 'Jenis Kelamin', 'Jenjang', 'Pengurus', 'Keterangan', 'Libur', 'Nama Ayah', 'Nama Ibu', 'No HP', 'Akun Media', 'Hobi', 'Dibuat Pada'];
 
         $callback = function() use($generus, $columns) {
             $file = fopen('php://output', 'w');
@@ -323,6 +328,7 @@ class GenerusController extends Controller
                     $g->umur,
                     $g->jenis_kelamin,
                     $g->jenjang,
+                    $g->is_pengurus ? 'Ya' : 'Tidak',
                     $g->keterangan,
                     $g->libur,
                     $g->nama_ayah,

@@ -82,6 +82,7 @@ class MtController extends Controller
             'hobi' => 'nullable|string',
             'kelompok' => 'nullable|string|max:255',
             'jenjang' => 'nullable|string|max:255',
+            'is_pengurus' => 'nullable|boolean',
             'status' => 'required|in:aktif,tidak aktif,pasif',
             'keterangan' => 'nullable|string',
             'libur' => 'nullable|string'
@@ -168,7 +169,12 @@ class MtController extends Controller
             ->orderBy('nama_lengkap');
 
         if (!empty($targetKategori)) {
-            $generusQuery->whereIn('jenjang', $targetKategori);
+            $generusQuery->where(function ($query) use ($targetKategori) {
+                $query->whereIn('jenjang', $targetKategori);
+                if (in_array('PENGURUS', $targetKategori)) {
+                    $query->orWhere('is_pengurus', true);
+                }
+            });
         }
 
         $allGenerus = $generusQuery->get();
@@ -196,6 +202,7 @@ class MtController extends Controller
                 'id' => $g->id,
                 'nama_lengkap' => $g->nama_lengkap,
                 'jenjang' => $g->jenjang,
+                'is_pengurus' => $g->is_pengurus,
                 'kelompok' => $g->kelompok,
                 'status' => $g->status,
                 'umur' => $g->umur,
