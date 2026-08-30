@@ -37,10 +37,24 @@ class EventController extends Controller
                 }
             }
             $event->target_count = $targetCount;
-            $event->is_completed = ($targetCount > 0 && $event->attendances_count >= $targetCount);
+            $event->is_closed = (bool) $event->is_closed;
+            $event->is_completed = $event->is_closed || ($targetCount > 0 && $event->attendances_count >= $targetCount);
         }
 
         return response()->json(['success' => true, 'data' => $events], 200);
+    }
+
+    public function toggleStatus($id)
+    {
+        $event = Event::findOrFail($id);
+        $event->is_closed = !$event->is_closed;
+        $event->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Status acara berhasil diubah',
+            'is_closed' => $event->is_closed
+        ], 200);
     }
 
     public function store(Request $request)

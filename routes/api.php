@@ -53,6 +53,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('admin/attendance/{eventId}/{generusId}', [AttendanceController::class, 'destroy']);
         Route::get('admin/dashboard-stats', [DashboardController::class, 'index']);
         // Otomatis membuat rute: GET, POST, PUT, DELETE untuk /admin/events
+        Route::patch('admin/events/{id}/toggle-status', [EventController::class, 'toggleStatus']);
         Route::apiResource('admin/events', EventController::class);
         Route::apiResource('admin/event-types', EventTypeController::class);
     });
