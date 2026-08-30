@@ -34,4 +34,9 @@ class Generus extends Model
     {
         return $this->belongsTo(User::class);
     }
+
+    public function getNamaLengkapAttribute($value)
+    {
+        return mb_convert_case(mb_strtolower($value, 'UTF-8'), MB_CASE_TITLE, 'UTF-8');
+    }
 }

@@ -37,4 +37,9 @@ class User extends Authenticatable
     {
         return $this->hasOne(Generus::class);
     }
+
+    public function getNameAttribute($value)
+    {
+        return mb_convert_case(mb_strtolower($value, 'UTF-8'), MB_CASE_TITLE, 'UTF-8');
+    }
 }
