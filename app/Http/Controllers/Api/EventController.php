@@ -11,7 +11,35 @@ class EventController extends Controller
 {
     public function index()
     {
-        $events = Event::orderBy('event_date', 'desc')->get();
+        $events = Event::withCount('attendances')->orderBy('event_date', 'desc')->get();
+        
+        $allGenerus = \App\Models\Generus::whereIn('status', ['aktif', 'pasif'])->get();
+
+        foreach($events as $event) {
+            $targetKategori = json_decode($event->target_kategori, true) ?: [];
+            
+            $targetCount = 0;
+            if (empty($targetKategori)) {
+                $targetCount = $allGenerus->count();
+            } else {
+                foreach($allGenerus as $g) {
+                    $j = strtolower($g->jenjang ?? '');
+                    $match = false;
+                    foreach($targetKategori as $t) {
+                        $tLower = strtolower($t);
+                        if ($tLower === 'pengurus') {
+                            if ($g->is_pengurus) $match = true;
+                        } else {
+                            if (str_contains($j, $tLower)) $match = true;
+                        }
+                    }
+                    if ($match) $targetCount++;
+                }
+            }
+            $event->target_count = $targetCount;
+            $event->is_completed = ($targetCount > 0 && $event->attendances_count >= $targetCount);
+        }
+
         return response()->json(['success' => true, 'data' => $events], 200);
     }
 
