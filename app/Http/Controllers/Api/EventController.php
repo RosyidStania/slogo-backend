@@ -38,7 +38,7 @@ class EventController extends Controller
             }
             $event->target_count = $targetCount;
             $event->is_closed = (bool) $event->is_closed;
-            $event->is_completed = $event->is_closed || ($targetCount > 0 && $event->attendances_count >= $targetCount);
+            $event->is_completed = $event->is_closed || (!$event->allow_other_participants && $targetCount > 0 && $event->attendances_count >= $targetCount);
         }
 
         return response()->json(['success' => true, 'data' => $events], 200);
