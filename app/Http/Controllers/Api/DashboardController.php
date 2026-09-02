@@ -22,13 +22,21 @@ class DashboardController extends Controller
                                   ->whereYear('event_date', Carbon::now()->year)
                                   ->count();
 
+            $eventTypeIds = $request->input('event_type_ids', []);
+            $currentYear = Carbon::now()->year;
+
             // ====================================================================
             // LOGIKA BARU: HITUNG PERSENTASE KEHADIRAN SESUAI STATUS (AKTIF/PASIF)
             // ====================================================================
             
             // A. Hitung Total Pembagi (Denominator)
             // Diambil dari: Seluruh data absensi anggota 'aktif' + Data anggota 'pasif' TAPI KHUSUS yang 'hadir' saja
-            $totalValidAbsensi = Attendance::where(function($query) {
+            $totalValidAbsensi = Attendance::whereHas('event', function($q) use ($currentYear, $eventTypeIds) {
+                $q->whereYear('event_date', $currentYear);
+                if (!empty($eventTypeIds)) {
+                    $q->whereIn('event_type_id', $eventTypeIds);
+                }
+            })->where(function($query) {
                 // Kondisi 1: Milik Generus Aktif (apapun status absensinya: hadir/izin/alpa)
                 $query->whereHas('generus', function($q) {
                     $q->where('status', 'aktif');
@@ -44,7 +52,12 @@ class DashboardController extends Controller
 
             // B. Hitung Total Hadir (Numerator)
             // Diambil dari: Semua status 'hadir' milik anggota 'aktif' maupun 'pasif'
-            $totalHadir = Attendance::where('status', 'hadir')
+            $totalHadir = Attendance::whereHas('event', function($q) use ($currentYear, $eventTypeIds) {
+                $q->whereYear('event_date', $currentYear);
+                if (!empty($eventTypeIds)) {
+                    $q->whereIn('event_type_id', $eventTypeIds);
+                }
+            })->where('status', 'hadir')
                 ->whereHas('generus', function($q) {
                     $q->whereIn('status', ['aktif', 'pasif']);
                 })->count();
@@ -72,8 +85,6 @@ class DashboardController extends Controller
                                    ->orderBy('event_date', 'asc')
                                    ->take(3)
                                    ->get();
-
-            $eventTypeIds = $request->input('event_type_ids', []);
 
             // 5. Peringkat Kehadiran Individu (Top 5 Tahun Ini)
             $topAttendeesQuery = Attendance::where('attendances.status', 'hadir')
