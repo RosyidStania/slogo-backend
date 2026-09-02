@@ -15,7 +15,7 @@ class Generus extends Model
     
     protected $fillable = [
         'user_id', 'nama_lengkap', 'kelompok', 'status', 'tempat_lahir', 'tanggal_lahir', 
-        'umur', 'jenis_kelamin', 'jenjang', 'is_pengurus', 'is_pengurus_muda_mudi', 'keterangan', 'libur', 
+        'umur', 'jenis_kelamin', 'jenjang', 'is_pengurus', 'is_pengurus_muda_mudi', 'is_ketua_wakil_kelompok', 'keterangan', 'libur', 
         'nama_ayah', 'nama_ibu', 'no_hp', 'akun_media', 'hobi', 'kode_unik'
     ];
 

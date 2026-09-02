@@ -64,7 +64,8 @@ class EventController extends Controller
                 'event_date' => 'required|date',
                 'start_time' => 'required',
                 'target_kategori' => 'required|array',
-                'event_type_id' => 'nullable|exists:event_types,id' // <-- TAMBAHAN BARU
+                'event_type_id' => 'nullable|exists:event_types,id',
+                'allow_other_participants' => 'boolean'
             ]);
 
             $event = Event::create([
@@ -72,7 +73,8 @@ class EventController extends Controller
                 'event_date' => $request->event_date,
                 'start_time' => $request->start_time,
                 'target_kategori' => json_encode($request->target_kategori),
-                'event_type_id' => $request->event_type_id // <-- TAMBAHAN BARU
+                'event_type_id' => $request->event_type_id,
+                'allow_other_participants' => $request->allow_other_participants ?? false
             ]);
 
             return response()->json(['success' => true, 'data' => $event], 201);
@@ -87,7 +89,8 @@ class EventController extends Controller
                 'event_date' => 'required|date',
                 'start_time' => 'required',
                 'target_kategori' => 'required|array',
-                'event_type_id' => 'nullable|exists:event_types,id' // <-- TAMBAHAN BARU
+                'event_type_id' => 'nullable|exists:event_types,id',
+                'allow_other_participants' => 'boolean'
             ]);
 
             $event->update([
@@ -95,7 +98,8 @@ class EventController extends Controller
                 'event_date' => $request->event_date,
                 'start_time' => $request->start_time,
                 'target_kategori' => json_encode($request->target_kategori),
-                'event_type_id' => $request->event_type_id // <-- TAMBAHAN BARU
+                'event_type_id' => $request->event_type_id,
+                'allow_other_participants' => $request->allow_other_participants ?? false
             ]);
 
             return response()->json(['success' => true, 'data' => $event], 200);

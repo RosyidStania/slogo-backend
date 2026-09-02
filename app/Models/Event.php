@@ -15,7 +15,12 @@ class Event extends Model
         'event_date', 
         'start_time', 
         'target_kategori', 
-        'event_type_id' 
+        'event_type_id',
+        'allow_other_participants'
+    ];
+
+    protected $casts = [
+        'allow_other_participants' => 'boolean',
     ];
 
     public function eventType()
