@@ -30,6 +30,20 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/reset-password', [AuthController::class, 'resetPassword']); 
 
     // ------------------------------------------
+    // KHUSUS ADMIN & OPERATOR ABSENSI
+    // ------------------------------------------
+    Route::middleware('role:admin,operator_absensi')->group(function () {
+        Route::get('admin/events', [EventController::class, 'index']);
+        Route::get('admin/events/{event}', [EventController::class, 'show']);
+        Route::get('admin/generus', [\App\Http\Controllers\Api\GenerusController::class, 'index']);
+        Route::get('admin/dashboard-stats', [DashboardController::class, 'index']);
+        Route::get('admin/events/{id}/summary', [AttendanceController::class, 'summary']);
+        Route::post('admin/attendance', [AttendanceController::class, 'store']);
+        Route::post('admin/attendance/bulk', [AttendanceController::class, 'bulkStore']);
+        Route::delete('admin/attendance/{eventId}/{generusId}', [AttendanceController::class, 'destroy']);
+    });
+
+    // ------------------------------------------
     // KHUSUS ADMIN
     // ------------------------------------------
     Route::middleware('role:admin')->group(function () {
@@ -40,21 +54,16 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('admin/generus/import', [\App\Http\Controllers\Api\GenerusController::class, 'import']);
         Route::get('admin/generus/export', [\App\Http\Controllers\Api\GenerusController::class, 'exportCsv']);
         Route::delete('admin/generus/destroy-all', [\App\Http\Controllers\Api\GenerusController::class, 'destroyAll']);
-        Route::apiResource('admin/generus', \App\Http\Controllers\Api\GenerusController::class);
+        Route::apiResource('admin/generus', \App\Http\Controllers\Api\GenerusController::class)->except(['index']);
         Route::get('admin/reports/available-years', [ReportController::class, 'availableYears']);
         Route::get('admin/reports/attendance-by-type', [ReportController::class, 'attendanceByType']);
         Route::delete('admin/users/destroy-all', [AdminUserController::class, 'destroyAllUsers']);
         Route::post('admin/users/generate-from-generus', [AdminUserController::class, 'generateFromGenerus']);
         Route::apiResource('admin/users', AdminUserController::class);
-        Route::get('admin/events/{id}/summary', [AttendanceController::class, 'summary']);
         Route::get('admin/attendance/export/{eventId}', [AttendanceController::class, 'exportCsv']);
-        Route::post('admin/attendance', [AttendanceController::class, 'store']);
-        Route::post('admin/attendance/bulk', [AttendanceController::class, 'bulkStore']);
-        Route::delete('admin/attendance/{eventId}/{generusId}', [AttendanceController::class, 'destroy']);
-        Route::get('admin/dashboard-stats', [DashboardController::class, 'index']);
         // Otomatis membuat rute: GET, POST, PUT, DELETE untuk /admin/events
         Route::patch('admin/events/{id}/toggle-status', [EventController::class, 'toggleStatus']);
-        Route::apiResource('admin/events', EventController::class);
+        Route::apiResource('admin/events', EventController::class)->except(['index', 'show']);
         Route::apiResource('admin/event-types', EventTypeController::class);
     });
 

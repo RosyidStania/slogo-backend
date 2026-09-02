@@ -22,7 +22,7 @@ class AdminUserController extends Controller
             'name'     => 'required|string|max:255',
             'username' => 'required|string|unique:users,username|max:255',
             'password' => 'required|string|min:6',
-            'role'     => 'required|in:admin,user,mt',
+            'role'     => 'required|in:admin,user,mt,operator_absensi',
             'generus_id' => 'nullable|integer'
         ]);
 
@@ -52,7 +52,7 @@ class AdminUserController extends Controller
         $validator = Validator::make($request->all(), [
             'name'     => 'required|string|max:255',
             'username' => 'required|string|max:255|unique:users,username,'.$id,
-            'role'     => 'required|in:admin,user,mt',
+            'role'     => 'required|in:admin,user,mt,operator_absensi',
             'password' => 'nullable|string|min:6', // Password opsional saat edit
             'generus_id' => 'nullable|integer'
         ]);
