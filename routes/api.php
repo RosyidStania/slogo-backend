@@ -35,8 +35,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('role:admin,operator_absensi')->group(function () {
         Route::get('admin/events', [EventController::class, 'index']);
         Route::get('admin/events/{event}', [EventController::class, 'show']);
+        Route::get('admin/event-types', [EventTypeController::class, 'index']);
         Route::get('admin/generus', [\App\Http\Controllers\Api\GenerusController::class, 'index']);
-        Route::get('admin/dashboard-stats', [DashboardController::class, 'index']);
         Route::get('admin/events/{id}/summary', [AttendanceController::class, 'summary']);
         Route::post('admin/attendance', [AttendanceController::class, 'store']);
         Route::post('admin/attendance/bulk', [AttendanceController::class, 'bulkStore']);
@@ -55,6 +55,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('admin/generus/export', [\App\Http\Controllers\Api\GenerusController::class, 'exportCsv']);
         Route::delete('admin/generus/destroy-all', [\App\Http\Controllers\Api\GenerusController::class, 'destroyAll']);
         Route::apiResource('admin/generus', \App\Http\Controllers\Api\GenerusController::class)->except(['index']);
+        Route::get('admin/dashboard-stats', [DashboardController::class, 'index']);
         Route::get('admin/reports/available-years', [ReportController::class, 'availableYears']);
         Route::get('admin/reports/attendance-by-type', [ReportController::class, 'attendanceByType']);
         Route::delete('admin/users/destroy-all', [AdminUserController::class, 'destroyAllUsers']);
@@ -64,7 +65,7 @@ Route::middleware('auth:sanctum')->group(function () {
         // Otomatis membuat rute: GET, POST, PUT, DELETE untuk /admin/events
         Route::patch('admin/events/{id}/toggle-status', [EventController::class, 'toggleStatus']);
         Route::apiResource('admin/events', EventController::class)->except(['index', 'show']);
-        Route::apiResource('admin/event-types', EventTypeController::class);
+        Route::apiResource('admin/event-types', EventTypeController::class)->except(['index']);
     });
 
     // ------------------------------------------
