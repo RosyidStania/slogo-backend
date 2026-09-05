@@ -139,6 +139,7 @@ class MtController extends Controller
         $events = Event::where('event_type_id', $typeId)
             ->whereYear('event_date', $year)
             ->orderBy('event_date', 'asc')
+            ->orderBy('start_time', 'asc')
             ->get();
 
         $eventIds = $events->pluck('id')->toArray();

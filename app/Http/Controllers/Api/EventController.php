@@ -11,7 +11,7 @@ class EventController extends Controller
 {
     public function index()
     {
-        $events = Event::withCount('attendances')->orderBy('event_date', 'desc')->get();
+        $events = Event::withCount('attendances')->orderBy('event_date', 'desc')->orderBy('start_time', 'desc')->get();
         
         $allGenerus = \App\Models\Generus::whereIn('status', ['aktif', 'pasif'])->get();
 
