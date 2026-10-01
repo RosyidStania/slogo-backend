@@ -136,7 +136,9 @@ class MtController extends Controller
             ]);
         }
 
-        $events = Event::where('event_type_id', $typeId)
+        $typeIds = is_array($typeId) ? $typeId : explode(',', $typeId);
+
+        $events = Event::whereIn('event_type_id', $typeIds)
             ->whereYear('event_date', $year)
             ->orderBy('event_date', 'asc')
             ->orderBy('start_time', 'asc')
@@ -144,8 +146,14 @@ class MtController extends Controller
 
         $eventIds = $events->pluck('id')->toArray();
 
-        $eventType = \App\Models\EventType::find($typeId);
-        $targetKategori = $eventType ? ($eventType->target_kategori ?? []) : [];
+        $eventTypeModels = \App\Models\EventType::whereIn('id', $typeIds)->get();
+        $targetKategori = [];
+        foreach ($eventTypeModels as $et) {
+            if (!empty($et->target_kategori)) {
+                $targetKategori = array_merge($targetKategori, $et->target_kategori);
+            }
+        }
+        $targetKategori = array_unique($targetKategori);
 
         $generusQuery = Generus::where('kelompok', $kelompok)
             ->orderByRaw("CASE WHEN status = 'Aktif' THEN 1 ELSE 2 END")
@@ -172,8 +180,15 @@ class MtController extends Controller
         if (!empty($targetKategori)) {
             $generusQuery->where(function ($query) use ($targetKategori) {
                 $query->whereIn('jenjang', $targetKategori);
-                if (in_array('PENGURUS', $targetKategori)) {
+                
+                if (in_array('PENGURUS', $targetKategori) || in_array('PENGURUS USMAN', $targetKategori)) {
                     $query->orWhere('is_pengurus', true);
+                }
+                if (in_array('PENGURUS MUDA MUDI', $targetKategori)) {
+                    $query->orWhere('is_pengurus_muda_mudi', true);
+                }
+                if (in_array('KETUA/WAKIL KELOMPOK', $targetKategori)) {
+                    $query->orWhere('is_ketua_wakil_kelompok', true);
                 }
             });
         }

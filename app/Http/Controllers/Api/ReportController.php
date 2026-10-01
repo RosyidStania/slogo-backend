@@ -34,9 +34,11 @@ class ReportController extends Controller
             return response()->json(['success' => false, 'message' => 'Parameter event_type_id wajib diisi'], 400);
         }
 
+        $typeIds = is_array($typeId) ? $typeId : explode(',', $typeId);
+
         // Ambil semua event pada tahun dan tipe tersebut
         // Urutkan asc agar jika ada >1 event di bulan yang sama, event yang terakhir (override) yang dipakai
-        $events = Event::where('event_type_id', $typeId)
+        $events = Event::whereIn('event_type_id', $typeIds)
             ->whereYear('event_date', $year)
             ->orderBy('event_date', 'asc')
             ->orderBy('start_time', 'asc')
@@ -46,8 +48,14 @@ class ReportController extends Controller
         $eventIds = $events->pluck('id')->toArray();
 
         // Ambil kategori acara untuk mengetahui siapa saja pesertanya
-        $eventType = \App\Models\EventType::find($typeId);
-        $targetKategori = $eventType ? ($eventType->target_kategori ?? []) : [];
+        $eventTypes = \App\Models\EventType::whereIn('id', $typeIds)->get();
+        $targetKategori = [];
+        foreach ($eventTypes as $et) {
+            if (!empty($et->target_kategori)) {
+                $targetKategori = array_merge($targetKategori, $et->target_kategori);
+            }
+        }
+        $targetKategori = array_unique($targetKategori);
 
         // Ambil semua generus
         // Urutan: 
@@ -78,7 +86,19 @@ class ReportController extends Controller
 
         // Jika event type memiliki target peserta spesifik, filter generus yang tampil
         if (!empty($targetKategori)) {
-            $generusQuery->whereIn('jenjang', $targetKategori);
+            $generusQuery->where(function ($query) use ($targetKategori) {
+                $query->whereIn('jenjang', $targetKategori);
+                
+                if (in_array('PENGURUS', $targetKategori) || in_array('PENGURUS USMAN', $targetKategori)) {
+                    $query->orWhere('is_pengurus', true);
+                }
+                if (in_array('PENGURUS MUDA MUDI', $targetKategori)) {
+                    $query->orWhere('is_pengurus_muda_mudi', true);
+                }
+                if (in_array('KETUA/WAKIL KELOMPOK', $targetKategori)) {
+                    $query->orWhere('is_ketua_wakil_kelompok', true);
+                }
+            });
         }
 
         $allGenerus = $generusQuery->get();
@@ -115,6 +135,9 @@ class ReportController extends Controller
                 'status' => $g->status,
                 'umur' => $g->umur,
                 'jenis_kelamin' => $g->jenis_kelamin,
+                'is_pengurus' => $g->is_pengurus,
+                'is_pengurus_muda_mudi' => $g->is_pengurus_muda_mudi,
+                'is_ketua_wakil_kelompok' => $g->is_ketua_wakil_kelompok,
                 'events_attendance' => $eventStatus
             ];
         }

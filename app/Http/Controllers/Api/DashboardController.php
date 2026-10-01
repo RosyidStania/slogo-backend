@@ -86,6 +86,8 @@ class DashboardController extends Controller
                                    ->take(3)
                                    ->get();
 
+            $excludeMt = $request->input('exclude_mt', 0);
+
             // 5. Peringkat Kehadiran Individu (Top 5 Tahun Ini)
             $topAttendeesQuery = Attendance::where('attendances.status', 'hadir')
                 ->join('events', 'attendances.event_id', '=', 'events.id')
@@ -95,18 +97,25 @@ class DashboardController extends Controller
                 $topAttendeesQuery->whereIn('events.event_type_id', $eventTypeIds);
             }
 
+            if ($excludeMt) {
+                $topAttendeesQuery->whereHas('generus', function($q) {
+                    $q->where('jenjang', '!=', 'MT');
+                });
+            }
+
             $topAttendees = $topAttendeesQuery
                 ->select('attendances.generus_id', DB::raw('count(attendances.id) as total_hadir'))
                 ->groupBy('attendances.generus_id')
                 ->orderBy('total_hadir', 'desc')
                 ->take(5)
-                ->with('generus:id,nama_lengkap,kelompok,jenjang')
+                ->with('generus:id,nama_lengkap,kelompok,jenjang,is_pengurus')
                 ->get()
                 ->map(function ($item) {
                     return [
                         'nama_lengkap' => $item->generus ? $item->generus->nama_lengkap : 'Terhapus',
                         'kelompok' => $item->generus ? $item->generus->kelompok : '-',
                         'jenjang' => $item->generus ? $item->generus->jenjang : '-',
+                        'is_pengurus' => $item->generus ? $item->generus->is_pengurus : 0,
                         'total_hadir' => $item->total_hadir
                     ];
                 });
@@ -119,6 +128,10 @@ class DashboardController extends Controller
 
             if (!empty($eventTypeIds)) {
                 $topGroupsQuery->whereIn('events.event_type_id', $eventTypeIds);
+            }
+
+            if ($excludeMt) {
+                $topGroupsQuery->where('generus.jenjang', '!=', 'MT');
             }
 
             $topGroups = $topGroupsQuery
