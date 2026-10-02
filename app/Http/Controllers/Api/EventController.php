@@ -27,8 +27,12 @@ class EventController extends Controller
                     $match = false;
                     foreach($targetKategori as $t) {
                         $tLower = strtolower($t);
-                        if ($tLower === 'pengurus') {
+                        if ($tLower === 'pengurus' || $tLower === 'pengurus usman') {
                             if ($g->is_pengurus) $match = true;
+                        } elseif ($tLower === 'pengurus muda mudi') {
+                            if ($g->is_pengurus_muda_mudi) $match = true;
+                        } elseif ($tLower === 'ketua/wakil kelompok') {
+                            if ($g->is_ketua_wakil_kelompok) $match = true;
                         } else {
                             if (str_contains($j, $tLower)) $match = true;
                         }
