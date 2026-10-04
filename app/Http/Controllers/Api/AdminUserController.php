@@ -22,22 +22,30 @@ class AdminUserController extends Controller
             'name'     => 'required|string|max:255',
             'username' => 'required|string|unique:users,username|max:255',
             'password' => 'required|string|min:6',
-            'role'     => 'required|in:admin,user,mt,operator_absensi',
-            'generus_id' => 'nullable|integer'
+            'role'     => 'required|in:admin,user,mt,operator_absensi,absen_kelompok',
+            'generus_id' => 'nullable|integer',
+            'kelompok' => 'required_if:role,absen_kelompok|nullable|string|max:255'
         ]);
 
         if ($validator->fails()) {
             return response()->json(['success' => false, 'message' => $validator->errors()], 422);
         }
 
+        $kelompok = $request->kelompok;
+        if ($request->generus_id && empty($kelompok)) {
+            $generus = \App\Models\Generus::find($request->generus_id);
+            $kelompok = $generus ? $generus->kelompok : null;
+        }
+
         $user = User::create([
             'name'     => $request->name,
             'username' => strtolower($request->username), // Pastikan username lowercase
-            'password' => Hash::make($request->password),
+            'password' => $request->password, // Cast 'hashed' di User model akan otomatis hash
             'role'     => $request->role,
+            'kelompok' => $kelompok
         ]);
 
-        if ($request->generus_id && in_array($request->role, ['user', 'mt'])) {
+        if ($request->generus_id && in_array($request->role, ['user', 'mt', 'absen_kelompok'])) {
             \App\Models\Generus::where('id', $request->generus_id)->update(['user_id' => $user->id]);
         }
 
@@ -52,9 +60,10 @@ class AdminUserController extends Controller
         $validator = Validator::make($request->all(), [
             'name'     => 'required|string|max:255',
             'username' => 'required|string|max:255|unique:users,username,'.$id,
-            'role'     => 'required|in:admin,user,mt,operator_absensi',
+            'role'     => 'required|in:admin,user,mt,operator_absensi,absen_kelompok',
             'password' => 'nullable|string|min:6', // Password opsional saat edit
-            'generus_id' => 'nullable|integer'
+            'generus_id' => 'nullable|integer',
+            'kelompok' => 'required_if:role,absen_kelompok|nullable|string|max:255'
         ]);
 
         if ($validator->fails()) return response()->json(['success' => false, 'message' => $validator->errors()], 422);
@@ -65,19 +74,28 @@ class AdminUserController extends Controller
         
         // Update password hanya jika diisi
         if ($request->filled('password')) {
-            $user->password = Hash::make($request->password);
+            $user->password = $request->password; // Cast 'hashed' di User model akan otomatis hash
+        }
+
+        if ($request->filled('kelompok')) {
+            $user->kelompok = $request->kelompok;
+        } elseif ($request->filled('generus_id')) {
+            $generus = \App\Models\Generus::find($request->generus_id);
+            if ($generus && $generus->kelompok) {
+                $user->kelompok = $generus->kelompok;
+            }
         }
         
         $user->save();
 
-        if ($request->role === 'user' || $request->role === 'mt') {
+        if (in_array($request->role, ['user', 'mt', 'absen_kelompok'])) {
             if ($request->has('generus_id')) {
                 \App\Models\Generus::where('user_id', $user->id)->update(['user_id' => null]);
                 if ($request->generus_id) {
                     \App\Models\Generus::where('id', $request->generus_id)->update(['user_id' => $user->id]);
                 }
             }
-        } elseif ($request->role !== 'mt') {
+        } else {
             \App\Models\Generus::where('user_id', $user->id)->update(['user_id' => null]);
         }
 
@@ -137,8 +155,9 @@ class AdminUserController extends Controller
             $user = User::create([
                 'name'     => $generus->nama_lengkap,
                 'username' => $username,
-                'password' => Hash::make($password),
+                'password' => $password, // Cast 'hashed' di User model akan otomatis hash
                 'role'     => $role,
+                'kelompok' => $generus->kelompok
             ]);
 
             // Update generus dengan user_id yang baru dibuat

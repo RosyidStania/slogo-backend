@@ -9,10 +9,11 @@ class EventType extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['name', 'code', 'description', 'start_time', 'target_kategori'];
+    protected $fillable = ['name', 'code', 'description', 'start_time', 'target_kategori', 'is_group_attendance'];
 
     protected $casts = [
         'target_kategori' => 'array', // Agar otomatis jadi array saat dibaca di React
+        'is_group_attendance' => 'boolean',
     ];
     // Relasi satu Jenis Acara bisa memiliki banyak Event
     public function events()

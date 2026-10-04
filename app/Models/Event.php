@@ -16,7 +16,9 @@ class Event extends Model
         'start_time', 
         'target_kategori', 
         'event_type_id',
-        'allow_other_participants'
+        'allow_other_participants',
+        'kelompok',
+        'infaq'
     ];
 
     protected $casts = [

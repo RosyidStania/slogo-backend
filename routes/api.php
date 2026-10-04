@@ -32,7 +32,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ------------------------------------------
     // KHUSUS ADMIN & OPERATOR ABSENSI
     // ------------------------------------------
-    Route::middleware('role:admin,operator_absensi')->group(function () {
+    Route::middleware('role:admin,operator_absensi,absen_kelompok')->group(function () {
         Route::get('admin/events', [EventController::class, 'index']);
         Route::get('admin/events/{event}', [EventController::class, 'show']);
         Route::get('admin/event-types', [EventTypeController::class, 'index']);
@@ -63,9 +63,16 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::apiResource('admin/users', AdminUserController::class);
         Route::get('admin/attendance/export/{eventId}', [AttendanceController::class, 'exportCsv']);
         // Otomatis membuat rute: GET, POST, PUT, DELETE untuk /admin/events
-        Route::patch('admin/events/{id}/toggle-status', [EventController::class, 'toggleStatus']);
-        Route::apiResource('admin/events', EventController::class)->except(['index', 'show']);
         Route::apiResource('admin/event-types', EventTypeController::class)->except(['index']);
+    });
+
+    // ------------------------------------------
+    // KHUSUS ADMIN & MT (Membuat Acara)
+    // ------------------------------------------
+    Route::middleware('role:admin,absen_kelompok')->group(function () {
+        Route::patch('admin/events/{id}/toggle-status', [EventController::class, 'toggleStatus']);
+        Route::patch('admin/events/{id}/infaq', [EventController::class, 'updateInfaq']);
+        Route::apiResource('admin/events', EventController::class)->except(['index', 'show']);
     });
 
     // ------------------------------------------
@@ -80,7 +87,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ------------------------------------------
     // KHUSUS MT
     // ------------------------------------------
-    Route::middleware('role:mt')->group(function () {
+    Route::middleware('role:mt,absen_kelompok')->group(function () {
         Route::get('/mt/group-members', [MtController::class, 'groupMembers']);
         Route::put('/mt/group-members/{id}', [MtController::class, 'updateMember']);
         Route::get('/mt/group-attendance', [MtController::class, 'groupAttendance']);
