@@ -8,9 +8,17 @@ use App\Models\EventType;
 
 class EventTypeController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        return response()->json(['success' => true, 'data' => EventType::orderBy('name', 'asc')->get()], 200);
+        $user = $request->user();
+        $query = EventType::orderBy('name', 'asc');
+        
+        // Jika yang login absen_kelompok, hanya tampilkan kategori yang di-set untuk absensi perkelompok
+        if ($user && $user->role === 'absen_kelompok') {
+            $query->where('is_group_attendance', true);
+        }
+        
+        return response()->json(['success' => true, 'data' => $query->get()], 200);
     }
 
     public function store(Request $request)
@@ -20,7 +28,8 @@ class EventTypeController extends Controller
             'code' => 'required|string|unique:event_types,code|max:50',
             'start_time' => 'required',
             'target_kategori' => 'required|array',
-            'description' => 'nullable|string'
+            'description' => 'nullable|string',
+            'is_group_attendance' => 'boolean'
         ]);
 
         $type = EventType::create([
@@ -28,7 +37,8 @@ class EventTypeController extends Controller
             'code' => strtoupper($request->code),
             'start_time' => $request->start_time,
             'target_kategori' => $request->target_kategori,
-            'description' => $request->description
+            'description' => $request->description,
+            'is_group_attendance' => $request->is_group_attendance ?? false
         ]);
 
         return response()->json(['success' => true, 'data' => $type], 201);
@@ -43,7 +53,8 @@ class EventTypeController extends Controller
             'code' => 'required|string|max:50|unique:event_types,code,' . $id,
             'start_time' => 'required',
             'target_kategori' => 'required|array',
-            'description' => 'nullable|string'
+            'description' => 'nullable|string',
+            'is_group_attendance' => 'boolean'
         ]);
 
         $type->update([
@@ -51,7 +62,8 @@ class EventTypeController extends Controller
             'code' => strtoupper($request->code),
             'start_time' => $request->start_time,
             'target_kategori' => $request->target_kategori,
-            'description' => $request->description
+            'description' => $request->description,
+            'is_group_attendance' => $request->is_group_attendance ?? false
         ]);
 
         return response()->json(['success' => true, 'data' => $type], 200);

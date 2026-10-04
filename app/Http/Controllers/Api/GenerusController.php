@@ -55,7 +55,7 @@ class GenerusController extends Controller
             $user = User::create([
                 'name'     => $request->nama_lengkap,
                 'username' => $username,
-                'password' => Hash::make($baseUsername . '123'), // Password: namatanpaspasi123
+                'password' => $baseUsername . '123', // Cast 'hashed' di User model akan otomatis hash
                 'role'     => $role,
             ]);
             $userId = $user->id;
@@ -161,7 +161,7 @@ class GenerusController extends Controller
                         $user = \App\Models\User::create([
                             'name'     => $row['nama_lengkap'],
                             'username' => $username,
-                            'password' => \Illuminate\Support\Facades\Hash::make($baseUsername . '123'),
+                            'password' => $baseUsername . '123', // Cast 'hashed' di User model akan otomatis hash
                             'role'     => $role,
                         ]);
                         $userId = $user->id;

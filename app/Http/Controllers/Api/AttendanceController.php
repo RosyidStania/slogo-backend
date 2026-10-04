@@ -25,10 +25,43 @@ class AttendanceController extends Controller
                             ->orderBy('created_at', 'desc')
                             ->get();
 
+            // Hitung target generus
+            $allGenerus = \App\Models\Generus::whereIn('status', ['aktif', 'pasif'])->get();
+            $targetKategori = json_decode($event->target_kategori, true) ?: [];
+            
+            $filteredGenerus = $allGenerus;
+            if (!empty($event->kelompok)) {
+                $filteredGenerus = $allGenerus->where('kelompok', $event->kelompok);
+            }
+
+            $targetGenerus = collect();
+            if (empty($targetKategori)) {
+                $targetGenerus = $filteredGenerus;
+            } else {
+                foreach($filteredGenerus as $g) {
+                    $j = strtolower($g->jenjang ?? '');
+                    $match = false;
+                    foreach($targetKategori as $t) {
+                        $tLower = strtolower($t);
+                        if ($tLower === 'pengurus' || $tLower === 'pengurus usman') {
+                            if ($g->is_pengurus) $match = true;
+                        } elseif ($tLower === 'pengurus muda mudi') {
+                            if ($g->is_pengurus_muda_mudi) $match = true;
+                        } elseif ($tLower === 'ketua/wakil kelompok') {
+                            if ($g->is_ketua_wakil_kelompok) $match = true;
+                        } else {
+                            if (str_contains($j, $tLower)) $match = true;
+                        }
+                    }
+                    if ($match) $targetGenerus->push($g);
+                }
+            }
+
             return response()->json([
                 'success' => true,
                 'event' => $event,
-                'attendances' => $attendances
+                'attendances' => $attendances,
+                'target_generus' => $targetGenerus->values()
             ], 200);
 
         } catch (Exception $e) {
@@ -109,7 +142,7 @@ class AttendanceController extends Controller
             return response()->json(['success' => false, 'message' => 'Acara tidak ditemukan'], 404);
         }
 
-        $fileName = 'rekapan_absensi_' . str_replace(' ', '_', strtolower($event->nama_event)) . '_' . date('Ymd_His') . '.csv';
+        $fileName = 'rekapan_absensi_' . str_replace(' ', '_', strtolower($event->name)) . '_' . date('Ymd_His') . '.csv';
         $attendances = Attendance::with('generus')->where('event_id', $eventId)->get();
 
         $headers = [

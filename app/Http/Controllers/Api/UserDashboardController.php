@@ -74,6 +74,7 @@ class UserDashboardController extends Controller
 
         $history = Attendance::with(['event.eventType'])
             ->where('generus_id', $generusId)
+            ->whereHas('event') // Skip orphaned attendances
             ->get()
             ->sortByDesc(function ($att) {
                 return $att->event->event_date;
@@ -84,7 +85,7 @@ class UserDashboardController extends Controller
                     'id' => $att->id,
                     'date' => $att->event->event_date,
                     'event_name' => $att->event->name,
-                    'event_type' => $att->event->eventType->name ?? 'Kegiatan',
+                    'event_type' => $att->event->eventType?->name ?? 'Kegiatan',
                     'status' => $att->status,
                     'time_arrived' => $att->time_arrived,
                     'is_late' => $att->is_late,

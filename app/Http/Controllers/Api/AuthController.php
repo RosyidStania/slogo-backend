@@ -80,6 +80,9 @@ class AuthController extends Controller
 
         $user->name = $request->name;
         $user->username = strtolower($request->username);
+        if ($request->filled('kelompok')) {
+            $user->kelompok = $request->kelompok;
+        }
         $user->save();
 
         if ($user->generus) {
@@ -123,7 +126,7 @@ class AuthController extends Controller
             ], 400);
         }
 
-        $user->password = Hash::make($request->new_password);
+        $user->password = $request->new_password; // Cast 'hashed' di User model akan otomatis hash
         
         $user->save();
 

@@ -13,11 +13,7 @@ class MtController extends Controller
 {
     private function getMtKelompok($user)
     {
-        $generus = $user->generus;
-        if (!$generus) {
-            return null;
-        }
-        return $generus->kelompok;
+        return $user->kelompok ?: $user->generus?->kelompok;
     }
 
     public function groupMembers(Request $request)
@@ -65,7 +61,7 @@ class MtController extends Controller
             return response()->json(['success' => false, 'message' => 'Data tidak ditemukan'], 404);
         }
 
-        if ($generus->kelompok !== $kelompok) {
+        if (strcasecmp($generus->kelompok ?? '', $kelompok ?? '') !== 0) {
             return response()->json(['success' => false, 'message' => 'Akses ditolak. Generus ini bukan dari kelompok Anda.'], 403);
         }
 
@@ -88,11 +84,12 @@ class MtController extends Controller
             'libur' => 'nullable|string'
         ]);
 
+        $validated['kelompok'] = $kelompok; // Lock kelompok, prevent reassignment
         $generus->update($validated);
         
         if ($generus->user_id) {
             $user = User::find($generus->user_id);
-            if ($user && $user->role !== 'admin') {
+            if ($user && !in_array($user->role, ['admin', 'operator_absensi', 'absen_kelompok'])) {
                 $newRole = strtoupper($validated['jenjang'] ?? '') === 'MT' ? 'mt' : 'user';
                 $user->update([
                     'name' => $validated['nama_lengkap'],
@@ -140,6 +137,9 @@ class MtController extends Controller
 
         $events = Event::whereIn('event_type_id', $typeIds)
             ->whereYear('event_date', $year)
+            ->where(function($q) use ($kelompok) {
+                $q->whereNull('kelompok')->orWhere('kelompok', $kelompok);
+            })
             ->orderBy('event_date', 'asc')
             ->orderBy('start_time', 'asc')
             ->get();
@@ -254,13 +254,15 @@ class MtController extends Controller
         $totalAnggota = $generus->count();
         $anggotaAktif = $generus->where('status', 'aktif')->count();
         
-        $eventsThisYear = Event::whereYear('event_date', $year)->get();
-        $totalAcara = 0;
+        $eventsThisYear = Event::whereYear('event_date', $year)
+            ->where(function($q) use ($kelompok) {
+                $q->whereNull('kelompok')->orWhere('kelompok', $kelompok);
+            })->get();
+        $totalAcara = $eventsThisYear->count();
         
         $attendances = Attendance::whereIn('generus_id', $generusIds)
-            ->whereHas('event', function($q) use ($year) {
-                $q->whereYear('event_date', $year);
-            })->get();
+            ->whereIn('event_id', $eventsThisYear->pluck('id'))
+            ->get();
             
         $totalKehadiran = $attendances->where('status', 'hadir')->count();
         $totalAbsen = $attendances->where('status', 'alpa')->count() + $attendances->where('status', 'izin')->count() + $attendances->where('status', 'sakit')->count();
@@ -307,7 +309,6 @@ class MtController extends Controller
             $typeAtts = $attendances->whereIn('event_id', $typeEvents);
             $totalEventAtts = $typeAtts->count();
             if ($totalEventAtts > 0) {
-                $totalAcara++;
                 $h = $typeAtts->where('status', 'hadir')->count();
                 $a = $typeAtts->where('status', 'alpa')->count();
                 $i = $typeAtts->whereIn('status', ['izin', 'sakit'])->count();
