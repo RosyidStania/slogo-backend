@@ -57,11 +57,58 @@ class AttendanceController extends Controller
                 }
             }
 
+            $previousEvent = Event::where('event_type_id', $event->event_type_id)
+                ->where('kelompok', $event->kelompok)
+                ->where('id', '!=', $id)
+                ->where('event_date', '<', $event->event_date)
+                ->orderBy('event_date', 'desc')
+                ->first();
+
+            $previousAttendances = [];
+            $previousTargetGenerus = collect();
+
+            if ($previousEvent) {
+                $previousAttendances = Attendance::with('generus')
+                                ->where('event_id', $previousEvent->id)
+                                ->get();
+                
+                $prevTargetKategori = json_decode($previousEvent->target_kategori, true) ?: [];
+                $prevFilteredGenerus = $allGenerus;
+                if (!empty($previousEvent->kelompok)) {
+                    $prevFilteredGenerus = $allGenerus->where('kelompok', $previousEvent->kelompok);
+                }
+
+                if (empty($prevTargetKategori)) {
+                    $previousTargetGenerus = $prevFilteredGenerus;
+                } else {
+                    foreach($prevFilteredGenerus as $g) {
+                        $j = strtolower($g->jenjang ?? '');
+                        $match = false;
+                        foreach($prevTargetKategori as $t) {
+                            $tLower = strtolower($t);
+                            if ($tLower === 'pengurus' || $tLower === 'pengurus usman') {
+                                if ($g->is_pengurus) $match = true;
+                            } elseif ($tLower === 'pengurus muda mudi') {
+                                if ($g->is_pengurus_muda_mudi) $match = true;
+                            } elseif ($tLower === 'ketua/wakil kelompok') {
+                                if ($g->is_ketua_wakil_kelompok) $match = true;
+                            } else {
+                                if (str_contains($j, $tLower)) $match = true;
+                            }
+                        }
+                        if ($match) $previousTargetGenerus->push($g);
+                    }
+                }
+            }
+
             return response()->json([
                 'success' => true,
                 'event' => $event,
                 'attendances' => $attendances,
-                'target_generus' => $targetGenerus->values()
+                'target_generus' => $targetGenerus->values(),
+                'previous_event' => $previousEvent,
+                'previous_attendances' => $previousAttendances,
+                'previous_target_generus' => $previousTargetGenerus->values()
             ], 200);
 
         } catch (Exception $e) {
