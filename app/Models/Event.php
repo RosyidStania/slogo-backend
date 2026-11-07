@@ -14,12 +14,15 @@ class Event extends Model
         'name', 
         'event_date', 
         'start_time', 
+        'end_time',
         'target_kategori', 
         'event_type_id',
+        'group_schedule_id',
         'allow_other_participants',
         'kelompok',
         'infaq',
-        'is_closed'
+        'is_closed',
+        'auto_closed_at'
     ];
 
     protected $casts = [
@@ -30,6 +33,11 @@ class Event extends Model
     public function eventType()
     {
         return $this->belongsTo(EventType::class, 'event_type_id');
+    }
+
+    public function groupSchedule()
+    {
+        return $this->belongsTo(GroupSchedule::class, 'group_schedule_id');
     }
 
     public function attendances()

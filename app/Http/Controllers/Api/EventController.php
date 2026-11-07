@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Models\Event;
+use App\Services\ScheduledEventGenerator;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Validator;
@@ -11,6 +12,14 @@ class EventController extends Controller
 {
     public function index(Request $request)
     {
+        // Lazy generation fallback: pastikan jadwal rutin yang sudah masuk waktu otomatis terbuat & yang lewat 2 jam tertutup
+        try {
+            app(ScheduledEventGenerator::class)->run();
+        } catch (\Throwable $e) {
+            // Jangan sampai daftar acara gagal dimuat hanya karena generator error
+            report($e);
+        }
+
         $user = $request->user();
         
         $query = Event::withCount('attendances')->orderBy('event_date', 'desc')->orderBy('start_time', 'desc');
@@ -20,9 +29,12 @@ class EventController extends Controller
             if (empty($user->kelompok)) {
                 return response()->json(['success' => true, 'data' => []], 200);
             }
-            $query->where('kelompok', $user->kelompok)
-                  ->whereHas('eventType', function ($q) {
-                      $q->where('is_group_attendance', true);
+            $query->whereRaw('LOWER(kelompok) = ?', [strtolower($user->kelompok)])
+                  ->where(function ($q) {
+                      $q->whereNotNull('group_schedule_id')
+                        ->orWhereHas('eventType', function ($et) {
+                            $et->where('is_group_attendance', true);
+                        });
                   });
         }
 
@@ -142,19 +154,22 @@ class EventController extends Controller
                 'name' => 'required|string|max:255',
                 'event_date' => 'required|date',
                 'start_time' => 'required',
+                'end_time' => 'nullable',
                 'target_kategori' => 'required|array',
                 'event_type_id' => 'nullable|exists:event_types,id',
                 'allow_other_participants' => 'boolean',
+                'kelompok' => 'nullable|string|max:100',
                 'infaq' => 'nullable|numeric'
             ]);
 
             $user = $request->user();
-            $kelompok = ($user && $user->role === 'absen_kelompok') ? $user->kelompok : null;
+            $kelompok = ($user && $user->role === 'absen_kelompok') ? $user->kelompok : $request->kelompok;
 
             $event = Event::create([
                 'name' => $request->name,
                 'event_date' => $request->event_date,
                 'start_time' => $request->start_time,
+                'end_time' => $request->end_time ?: null,
                 'target_kategori' => json_encode($request->target_kategori),
                 'event_type_id' => $request->event_type_id,
                 'allow_other_participants' => $request->allow_other_participants ?? false,
@@ -178,6 +193,7 @@ class EventController extends Controller
                 'name' => 'required|string|max:255',
                 'event_date' => 'required|date',
                 'start_time' => 'required',
+                'end_time' => 'nullable',
                 'target_kategori' => 'required|array',
                 'event_type_id' => 'nullable|exists:event_types,id',
                 'allow_other_participants' => 'boolean',
@@ -188,6 +204,8 @@ class EventController extends Controller
                 'name' => $request->name,
                 'event_date' => $request->event_date,
                 'start_time' => $request->start_time,
+                // Form edit tidak mengirim end_time; jangan hapus jam selesai acara otomatis
+                'end_time' => $request->has('end_time') ? ($request->end_time ?: null) : $event->end_time,
                 'target_kategori' => json_encode($request->target_kategori),
                 'event_type_id' => $request->event_type_id,
                 'allow_other_participants' => $request->allow_other_participants ?? false,

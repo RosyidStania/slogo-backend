@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\EventController;
 use App\Http\Controllers\Api\AttendanceController; 
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\EventTypeController;
+use App\Http\Controllers\Api\GroupScheduleController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\MtController;
 // ==========================================
@@ -67,12 +68,15 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     // ------------------------------------------
-    // KHUSUS ADMIN & MT (Membuat Acara)
+    // KHUSUS ADMIN & MT (Membuat Acara & Jadwal Rutin)
     // ------------------------------------------
     Route::middleware('role:admin,absen_kelompok')->group(function () {
         Route::patch('admin/events/{id}/toggle-status', [EventController::class, 'toggleStatus']);
         Route::patch('admin/events/{id}/infaq', [EventController::class, 'updateInfaq']);
         Route::apiResource('admin/events', EventController::class)->except(['index', 'show']);
+
+        Route::patch('admin/group-schedules/{id}/toggle-active', [GroupScheduleController::class, 'toggleActive']);
+        Route::apiResource('admin/group-schedules', GroupScheduleController::class)->except(['show']);
     });
 
     // ------------------------------------------
