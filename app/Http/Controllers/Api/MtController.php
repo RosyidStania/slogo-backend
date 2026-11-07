@@ -79,12 +79,17 @@ class MtController extends Controller
             'kelompok' => 'nullable|string|max:255',
             'jenjang' => 'nullable|string|max:255',
             'is_pengurus' => 'nullable|boolean',
+            'is_pengurus_muda_mudi' => 'nullable|boolean',
+            'is_ketua_wakil_kelompok' => 'nullable|boolean',
             'status' => 'required|in:aktif,tidak aktif,pasif',
             'keterangan' => 'nullable|string',
             'libur' => 'nullable|string'
         ]);
 
         $validated['kelompok'] = $kelompok; // Lock kelompok, prevent reassignment
+        $validated['is_pengurus'] = $request->boolean('is_pengurus');
+        $validated['is_pengurus_muda_mudi'] = $request->boolean('is_pengurus_muda_mudi');
+        $validated['is_ketua_wakil_kelompok'] = $request->boolean('is_ketua_wakil_kelompok');
         $generus->update($validated);
         
         if ($generus->user_id) {
@@ -219,6 +224,8 @@ class MtController extends Controller
                 'nama_lengkap' => $g->nama_lengkap,
                 'jenjang' => $g->jenjang,
                 'is_pengurus' => $g->is_pengurus,
+                'is_pengurus_muda_mudi' => $g->is_pengurus_muda_mudi,
+                'is_ketua_wakil_kelompok' => $g->is_ketua_wakil_kelompok,
                 'kelompok' => $g->kelompok,
                 'status' => $g->status,
                 'umur' => $g->umur,
@@ -294,6 +301,9 @@ class MtController extends Controller
             $memberStats[] = [
                 'nama_lengkap' => $g->nama_lengkap,
                 'jenjang' => $g->jenjang,
+                'is_pengurus' => $g->is_pengurus,
+                'is_pengurus_muda_mudi' => $g->is_pengurus_muda_mudi,
+                'is_ketua_wakil_kelompok' => $g->is_ketua_wakil_kelompok,
                 'total_hadir' => $h,
                 'total_absen' => $tot - $h,
                 'percentage' => $tot > 0 ? round(($h / $tot) * 100) : 0

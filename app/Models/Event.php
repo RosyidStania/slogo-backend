@@ -18,11 +18,13 @@ class Event extends Model
         'event_type_id',
         'allow_other_participants',
         'kelompok',
-        'infaq'
+        'infaq',
+        'is_closed'
     ];
 
     protected $casts = [
         'allow_other_participants' => 'boolean',
+        'is_closed' => 'boolean',
     ];
 
     public function eventType()

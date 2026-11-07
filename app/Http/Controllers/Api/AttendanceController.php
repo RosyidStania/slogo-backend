@@ -11,12 +11,17 @@ use Exception;
 class AttendanceController extends Controller
 {
     // Mengambil Data Rekapan
-    public function summary($id)
+    public function summary(Request $request, $id)
     {
         try {
             $event = Event::find($id);
             if (!$event) {
                 return response()->json(['success' => false, 'message' => 'Acara tidak ditemukan'], 404);
+            }
+
+            $user = $request->user();
+            if ($user && $user->role === 'absen_kelompok' && strcasecmp($event->kelompok ?? '', $user->kelompok ?? '') !== 0) {
+                return response()->json(['success' => false, 'message' => 'Akses ditolak.'], 403);
             }
 
             // Ambil absensi + data generusnya
@@ -31,7 +36,7 @@ class AttendanceController extends Controller
             
             $filteredGenerus = $allGenerus;
             if (!empty($event->kelompok)) {
-                $filteredGenerus = $allGenerus->where('kelompok', $event->kelompok);
+                $filteredGenerus = $allGenerus->filter(fn($g) => strcasecmp($g->kelompok ?? '', $event->kelompok) === 0);
             }
 
             $targetGenerus = collect();
@@ -57,12 +62,15 @@ class AttendanceController extends Controller
                 }
             }
 
-            $previousEvent = Event::where('event_type_id', $event->event_type_id)
-                ->where('kelompok', $event->kelompok)
-                ->where('id', '!=', $id)
-                ->where('event_date', '<', $event->event_date)
-                ->orderBy('event_date', 'desc')
-                ->first();
+            $previousEvent = null;
+            if (!empty($event->event_type_id)) {
+                $previousEvent = Event::where('event_type_id', $event->event_type_id)
+                    ->where('kelompok', $event->kelompok)
+                    ->where('id', '!=', $id)
+                    ->where('event_date', '<', $event->event_date)
+                    ->orderBy('event_date', 'desc')
+                    ->first();
+            }
 
             $previousAttendances = [];
             $previousTargetGenerus = collect();
@@ -75,7 +83,7 @@ class AttendanceController extends Controller
                 $prevTargetKategori = json_decode($previousEvent->target_kategori, true) ?: [];
                 $prevFilteredGenerus = $allGenerus;
                 if (!empty($previousEvent->kelompok)) {
-                    $prevFilteredGenerus = $allGenerus->where('kelompok', $previousEvent->kelompok);
+                    $prevFilteredGenerus = $allGenerus->filter(fn($g) => strcasecmp($g->kelompok ?? '', $previousEvent->kelompok) === 0);
                 }
 
                 if (empty($prevTargetKategori)) {
@@ -124,6 +132,18 @@ class AttendanceController extends Controller
     public function store(Request $request)
     {
         try {
+            $event = Event::find($request->event_id);
+            if (!$event) {
+                return response()->json(['success' => false, 'message' => 'Acara tidak ditemukan'], 404);
+            }
+            if ($event->is_closed) {
+                return response()->json(['success' => false, 'message' => 'Acara ini sudah ditutup.'], 403);
+            }
+            $user = $request->user();
+            if ($user && $user->role === 'absen_kelompok' && strcasecmp($event->kelompok ?? '', $user->kelompok ?? '') !== 0) {
+                return response()->json(['success' => false, 'message' => 'Akses ditolak.'], 403);
+            }
+
             $attendance = Attendance::updateOrCreate(
                 ['event_id' => $request->event_id, 'generus_id' => $request->generus_id],
                 ['status' => $request->status, 'time_arrived' => $request->time_arrived, 'is_late' => $request->is_late]
@@ -140,7 +160,17 @@ class AttendanceController extends Controller
     public function bulkStore(Request $request)
     {
         try {
+            $user = $request->user();
             foreach ($request->attendances as $att) {
+                $event = Event::find($att['event_id'] ?? null);
+                if (!$event) continue;
+                if ($event->is_closed) {
+                    return response()->json(['success' => false, 'message' => 'Acara ini sudah ditutup.'], 403);
+                }
+                if ($user && $user->role === 'absen_kelompok' && strcasecmp($event->kelompok ?? '', $user->kelompok ?? '') !== 0) {
+                    return response()->json(['success' => false, 'message' => 'Akses ditolak.'], 403);
+                }
+
                 $generusId = $att['generus_id'] ?? null;
                 
                 if (!$generusId && !empty($att['kode_unik'])) {
@@ -166,9 +196,18 @@ class AttendanceController extends Controller
     }
 
     // Hapus Absensi
-    public function destroy($eventId, $generusId)
+    public function destroy(Request $request, $eventId, $generusId)
     {
         try {
+            $event = Event::find($eventId);
+            if ($event && $event->is_closed) {
+                return response()->json(['success' => false, 'message' => 'Acara ini sudah ditutup.'], 403);
+            }
+            $user = $request->user();
+            if ($event && $user && $user->role === 'absen_kelompok' && strcasecmp($event->kelompok ?? '', $user->kelompok ?? '') !== 0) {
+                return response()->json(['success' => false, 'message' => 'Akses ditolak.'], 403);
+            }
+
             $deleted = Attendance::where('event_id', $eventId)
                                  ->where('generus_id', $generusId)
                                  ->delete();
@@ -182,11 +221,16 @@ class AttendanceController extends Controller
     }
 
     // Export Absensi
-    public function exportCsv($eventId)
+    public function exportCsv(Request $request, $eventId)
     {
         $event = Event::find($eventId);
         if (!$event) {
             return response()->json(['success' => false, 'message' => 'Acara tidak ditemukan'], 404);
+        }
+
+        $user = $request->user();
+        if ($user && $user->role === 'absen_kelompok' && strcasecmp($event->kelompok ?? '', $user->kelompok ?? '') !== 0) {
+            return response()->json(['success' => false, 'message' => 'Akses ditolak.'], 403);
         }
 
         $fileName = 'rekapan_absensi_' . str_replace(' ', '_', strtolower($event->name)) . '_' . date('Ymd_His') . '.csv';

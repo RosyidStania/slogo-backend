@@ -113,8 +113,8 @@ class AdminUserController extends Controller
 
     public function destroyAllUsers()
     {
-        // Ambil semua id user biasa
-        $userIds = User::where('role', '!=', 'admin')->pluck('id');
+        // Ambil semua id user biasa (tidak termasuk admin dan operator)
+        $userIds = User::whereIn('role', ['user', 'mt'])->pluck('id');
         
         // Null-kan user_id di tabel generus agar tidak ada error foreign key (jika ada)
         \App\Models\Generus::whereIn('user_id', $userIds)->update(['user_id' => null]);
@@ -122,7 +122,7 @@ class AdminUserController extends Controller
         // Hapus user
         User::whereIn('id', $userIds)->delete();
 
-        return response()->json(['success' => true, 'message' => 'Semua akun user biasa berhasil dihapus'], 200);
+        return response()->json(['success' => true, 'message' => 'Semua akun user generus berhasil dihapus'], 200);
     }
 
     public function generateFromGenerus()

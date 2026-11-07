@@ -75,7 +75,7 @@ class AuthController extends Controller
             'keterangan' => 'nullable|string|max:255',
             'libur' => 'nullable|string|max:255',
             'kelompok' => 'nullable|string|max:255',
-            'jenjang' => 'nullable|string|max:255',
+            'jenjang' => 'nullable|in:PAUD,TK,1 SD,2 SD,3 SD,4 SD,5 SD,6 SD,1 SMP,2 SMP,3 SMP,1 SMA/SMK,2 SMA/SMK,3 SMA/SMK,USMAN,MT',
         ]);
 
         $user->name = $request->name;
@@ -98,8 +98,8 @@ class AuthController extends Controller
                 'hobi' => $request->hobi,
                 'keterangan' => $request->keterangan,
                 'libur' => $request->libur,
-                'kelompok' => $request->kelompok,
-                'jenjang' => $request->jenjang,
+                'kelompok' => $request->filled('kelompok') ? $request->kelompok : $user->generus->kelompok,
+                'jenjang' => $request->filled('jenjang') ? $request->jenjang : $user->generus->jenjang,
             ]);
         }
 

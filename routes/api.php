@@ -38,6 +38,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('admin/event-types', [EventTypeController::class, 'index']);
         Route::get('admin/generus', [\App\Http\Controllers\Api\GenerusController::class, 'index']);
         Route::get('admin/events/{id}/summary', [AttendanceController::class, 'summary']);
+        Route::get('admin/attendance/export/{eventId}', [AttendanceController::class, 'exportCsv']);
         Route::post('admin/attendance', [AttendanceController::class, 'store']);
         Route::post('admin/attendance/bulk', [AttendanceController::class, 'bulkStore']);
         Route::delete('admin/attendance/{eventId}/{generusId}', [AttendanceController::class, 'destroy']);
@@ -61,7 +62,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('admin/users/destroy-all', [AdminUserController::class, 'destroyAllUsers']);
         Route::post('admin/users/generate-from-generus', [AdminUserController::class, 'generateFromGenerus']);
         Route::apiResource('admin/users', AdminUserController::class);
-        Route::get('admin/attendance/export/{eventId}', [AttendanceController::class, 'exportCsv']);
         // Otomatis membuat rute: GET, POST, PUT, DELETE untuk /admin/events
         Route::apiResource('admin/event-types', EventTypeController::class)->except(['index']);
     });

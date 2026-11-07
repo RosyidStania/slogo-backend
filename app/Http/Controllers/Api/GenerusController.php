@@ -32,6 +32,20 @@ class GenerusController extends Controller
             return response()->json(['success' => false, 'message' => $validator->errors()], 422);
         }
 
+        $trimmedName = trim($request->nama_lengkap);
+        $kelompok = $request->kelompok ?: 'Slogo';
+
+        $exists = Generus::whereRaw('LOWER(TRIM(nama_lengkap)) = ?', [mb_strtolower($trimmedName, 'UTF-8')])
+            ->whereRaw('LOWER(TRIM(kelompok)) = ?', [mb_strtolower(trim($kelompok), 'UTF-8')])
+            ->exists();
+
+        if ($exists) {
+            return response()->json([
+                'success' => false,
+                'message' => "Peserta dengan nama '{$trimmedName}' di kelompok '{$kelompok}' sudah terdaftar."
+            ], 422);
+        }
+
         $userId = null;
         
         // Ambil nilai jenjang (jadikan huruf kecil semua untuk pengecekan)
@@ -57,6 +71,7 @@ class GenerusController extends Controller
                 'username' => $username,
                 'password' => $baseUsername . '123', // Cast 'hashed' di User model akan otomatis hash
                 'role'     => $role,
+                'kelompok' => $request->kelompok,
             ]);
             $userId = $user->id;
         }
@@ -64,6 +79,8 @@ class GenerusController extends Controller
         $dataGenerus = $request->all();
         $dataGenerus['user_id'] = $userId;
         $dataGenerus['is_pengurus'] = $request->boolean('is_pengurus');
+        $dataGenerus['is_pengurus_muda_mudi'] = $request->boolean('is_pengurus_muda_mudi');
+        $dataGenerus['is_ketua_wakil_kelompok'] = $request->boolean('is_ketua_wakil_kelompok');
         
         // Create Data Generus
         $generus = Generus::create($dataGenerus);
@@ -82,6 +99,8 @@ class GenerusController extends Controller
             'kelompok'      => 'nullable|string|max:255',
             'jenjang'       => 'nullable|string|max:255',
             'is_pengurus'   => 'nullable|boolean',
+            'is_pengurus_muda_mudi' => 'nullable|boolean',
+            'is_ketua_wakil_kelompok' => 'nullable|boolean',
             'status'        => 'required|in:aktif,tidak aktif,pasif',
         ]);
 
@@ -89,17 +108,22 @@ class GenerusController extends Controller
 
         $updateData = $request->all();
         $updateData['is_pengurus'] = $request->boolean('is_pengurus');
+        $updateData['is_pengurus_muda_mudi'] = $request->boolean('is_pengurus_muda_mudi');
+        $updateData['is_ketua_wakil_kelompok'] = $request->boolean('is_ketua_wakil_kelompok');
         $generus->update($updateData);
 
         // Update the user's role and name if they have an associated user
         if ($generus->user_id) {
             $user = User::find($generus->user_id);
-            if ($user && $user->role !== 'admin') {
-                $newRole = strtoupper($request->jenjang ?? '') === 'MT' ? 'mt' : 'user';
-                $user->update([
-                    'role' => $newRole,
-                    'name' => $request->nama_lengkap
-                ]);
+            if ($user) {
+                $userUpdate = [
+                    'name'     => $request->nama_lengkap,
+                    'kelompok' => $request->kelompok,
+                ];
+                if (!in_array($user->role, ['admin', 'operator_absensi', 'absen_kelompok'])) {
+                    $userUpdate['role'] = strtoupper($request->jenjang ?? '') === 'MT' ? 'mt' : 'user';
+                }
+                $user->update($userUpdate);
             }
         }
 
@@ -140,6 +164,21 @@ class GenerusController extends Controller
                     // Abaikan baris jika nama lengkap kosong
                     if (empty($row['nama_lengkap'])) continue;
 
+                    $trimmedName = trim($row['nama_lengkap']);
+                    $kelompok = !empty($row['kelompok']) ? trim($row['kelompok']) : 'Slogo';
+
+                    // Cegah duplikasi jika peserta dengan kode_unik atau (nama_lengkap + kelompok) yang sama sudah ada
+                    $alreadyExists = false;
+                    if (!empty($row['kode_unik'])) {
+                        $alreadyExists = \App\Models\Generus::where('kode_unik', $row['kode_unik'])->exists();
+                    }
+                    if (!$alreadyExists) {
+                        $alreadyExists = \App\Models\Generus::whereRaw('LOWER(TRIM(nama_lengkap)) = ?', [mb_strtolower($trimmedName, 'UTF-8')])
+                            ->whereRaw('LOWER(TRIM(kelompok)) = ?', [mb_strtolower($kelompok, 'UTF-8')])
+                            ->exists();
+                    }
+                    if ($alreadyExists) continue;
+
                     $jenjang = strtolower($row['jenjang'] ?? '');
                     // LOGIKA BARU: Otomatis buat User untuk SEMUA jenjang agar ortu bisa memantau
                     $isRemajaKeAtas = true; 
@@ -163,6 +202,7 @@ class GenerusController extends Controller
                             'username' => $username,
                             'password' => $baseUsername . '123', // Cast 'hashed' di User model akan otomatis hash
                             'role'     => $role,
+                            'kelompok' => $row['kelompok'] ?: 'Slogo',
                         ]);
                         $userId = $user->id;
                     }

@@ -86,7 +86,7 @@ class EventController extends Controller
 
         $filteredGenerus = $allGenerus;
         if (!empty($event->kelompok)) {
-            $filteredGenerus = $allGenerus->where('kelompok', $event->kelompok);
+            $filteredGenerus = $allGenerus->filter(fn($g) => strcasecmp($g->kelompok ?? '', $event->kelompok) === 0);
         }
 
         $targetCount = 0;
@@ -215,6 +215,12 @@ class EventController extends Controller
     public function updateInfaq(Request $request, $id)
     {
         $event = Event::findOrFail($id);
+
+        $user = $request->user();
+        if ($user && $user->role === 'absen_kelompok' && strcasecmp($event->kelompok ?? '', $user->kelompok ?? '') !== 0) {
+            return response()->json(['success' => false, 'message' => 'Akses ditolak.'], 403);
+        }
+
         $request->validate([
             'infaq' => 'required|numeric'
         ]);
