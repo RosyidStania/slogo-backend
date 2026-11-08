@@ -106,6 +106,98 @@ class MtController extends Controller
         return response()->json(['success' => true, 'data' => $generus, 'message' => 'Data berhasil diupdate']);
     }
 
+    public function storeMember(Request $request)
+    {
+        $kelompok = $this->getMtKelompok($request->user());
+        if (!$kelompok) {
+            return response()->json(['success' => false, 'message' => 'Anda tidak memiliki kelompok yang valid.'], 403);
+        }
+
+        $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
+            'nama_lengkap'  => 'required|string|max:255',
+            'jenis_kelamin' => 'required|in:L,P',
+            'jenjang'       => 'nullable|string|max:255',
+            'is_pengurus'   => 'nullable|boolean',
+            'status'        => 'required|in:aktif,tidak aktif,pasif',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'message' => $validator->errors()], 422);
+        }
+
+        $trimmedName = trim($request->nama_lengkap);
+
+        $exists = Generus::whereRaw('LOWER(TRIM(nama_lengkap)) = ?', [mb_strtolower($trimmedName, 'UTF-8')])
+            ->whereRaw('LOWER(TRIM(kelompok)) = ?', [mb_strtolower(trim($kelompok), 'UTF-8')])
+            ->exists();
+
+        if ($exists) {
+            return response()->json([
+                'success' => false,
+                'message' => "Peserta dengan nama '{$trimmedName}' di kelompok '{$kelompok}' sudah terdaftar."
+            ], 422);
+        }
+
+        $baseUsername = strtolower(str_replace(' ', '', $request->nama_lengkap));
+        $username = $baseUsername;
+        $counter = 1;
+
+        while (User::where('username', $username)->exists()) {
+            $username = $baseUsername . $counter;
+            $counter++;
+        }
+
+        $role = strtoupper($request->jenjang ?? '') === 'MT' ? 'mt' : 'user';
+
+        $user = User::create([
+            'name'     => $request->nama_lengkap,
+            'username' => $username,
+            'password' => $baseUsername . '123',
+            'role'     => $role,
+            'kelompok' => $kelompok,
+        ]);
+        $userId = $user->id;
+
+        $dataGenerus = $request->all();
+        $dataGenerus['kelompok'] = $kelompok;
+        $dataGenerus['user_id'] = $userId;
+        $dataGenerus['is_pengurus'] = $request->boolean('is_pengurus');
+        $dataGenerus['is_pengurus_muda_mudi'] = $request->boolean('is_pengurus_muda_mudi');
+        $dataGenerus['is_ketua_wakil_kelompok'] = $request->boolean('is_ketua_wakil_kelompok');
+
+        $generus = Generus::create($dataGenerus);
+
+        return response()->json(['success' => true, 'message' => 'Data peserta berhasil ditambahkan', 'data' => $generus], 201);
+    }
+
+    public function destroyMember(Request $request, $id)
+    {
+        $kelompok = $this->getMtKelompok($request->user());
+        if (!$kelompok) {
+            return response()->json(['success' => false, 'message' => 'Anda tidak memiliki kelompok yang valid.'], 403);
+        }
+
+        $generus = Generus::find($id);
+        if (!$generus) {
+            return response()->json(['success' => false, 'message' => 'Data tidak ditemukan'], 404);
+        }
+
+        if (strcasecmp($generus->kelompok ?? '', $kelompok ?? '') !== 0) {
+            return response()->json(['success' => false, 'message' => 'Akses ditolak. Generus ini bukan dari kelompok Anda.'], 403);
+        }
+
+        if ($generus->user_id) {
+            $user = User::find($generus->user_id);
+            if ($user && !in_array($user->role, ['admin'])) {
+                $user->delete();
+            }
+        }
+
+        $generus->delete();
+
+        return response()->json(['success' => true, 'message' => 'Data peserta berhasil dihapus']);
+    }
+
     public function groupAttendance(Request $request)
     {
         $kelompok = $this->getMtKelompok($request->user());

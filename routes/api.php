@@ -93,7 +93,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // ------------------------------------------
     Route::middleware('role:mt,absen_kelompok')->group(function () {
         Route::get('/mt/group-members', [MtController::class, 'groupMembers']);
+        Route::post('/mt/group-members', [MtController::class, 'storeMember']);
         Route::put('/mt/group-members/{id}', [MtController::class, 'updateMember']);
+        Route::delete('/mt/group-members/{id}', [MtController::class, 'destroyMember']);
         Route::get('/mt/group-attendance', [MtController::class, 'groupAttendance']);
         Route::get('/mt/group-statistics', [MtController::class, 'groupStatistics']);
     });
