@@ -44,4 +44,9 @@ class Event extends Model
     {
         return $this->hasMany(Attendance::class, 'event_id');
     }
+
+    public function meetingNote()
+    {
+        return $this->hasOne(MeetingNote::class, 'event_id');
+    }
 }

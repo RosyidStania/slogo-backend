@@ -119,10 +119,13 @@ class ScheduledEventGenerator
 
     protected function resolveTargetKategori(GroupSchedule $schedule): array
     {
-        $target = $schedule->target_kategori;
-        if (empty($target) && $schedule->eventType && !empty($schedule->eventType->target_kategori)) {
+        // Prioritaskan template acara terbaru jika schedule terhubung ke eventType
+        if ($schedule->eventType && !empty($schedule->eventType->target_kategori)) {
             $target = $schedule->eventType->target_kategori;
+        } else {
+            $target = $schedule->target_kategori;
         }
+
         if (is_string($target)) {
             $target = json_decode($target, true) ?: [];
         }

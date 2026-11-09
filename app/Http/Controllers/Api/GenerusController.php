@@ -8,24 +8,27 @@ use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
+use App\Models\PengurusType;
 
 class GenerusController extends Controller
 {
     public function index()
     {
-        $generus = Generus::orderBy('created_at', 'desc')->get();
+        $generus = Generus::with('pengurusTypes:id,name,code,badge_color')->orderBy('created_at', 'desc')->get();
         return response()->json(['success' => true, 'data' => $generus], 200);
     }
 
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'nama_lengkap'  => 'required|string|max:255',
-            'jenis_kelamin' => 'required|in:L,P',
-            'kelompok'      => 'nullable|string|max:255',
-            'jenjang'       => 'nullable|string|max:255',
-            'is_pengurus'   => 'nullable|boolean',
-            'status'        => 'required|in:aktif,tidak aktif,pasif', // nonaktif diubah jadi tidak aktif
+            'nama_lengkap'       => 'required|string|max:255',
+            'jenis_kelamin'      => 'required|in:L,P',
+            'kelompok'           => 'nullable|string|max:255',
+            'jenjang'            => 'nullable|string|max:255',
+            'is_pengurus'        => 'nullable|boolean',
+            'pengurus_type_ids'  => 'nullable|array',
+            'pengurus_type_ids.*'=> 'integer|exists:pengurus_types,id',
+            'status'             => 'required|in:aktif,tidak aktif,pasif', // nonaktif diubah jadi tidak aktif
         ]);
 
         if ($validator->fails()) {
@@ -76,14 +79,40 @@ class GenerusController extends Controller
             $userId = $user->id;
         }
 
-        $dataGenerus = $request->all();
+        $dataGenerus = $request->except(['pengurus_type_ids']);
         $dataGenerus['user_id'] = $userId;
-        $dataGenerus['is_pengurus'] = $request->boolean('is_pengurus');
-        $dataGenerus['is_pengurus_muda_mudi'] = $request->boolean('is_pengurus_muda_mudi');
-        $dataGenerus['is_ketua_wakil_kelompok'] = $request->boolean('is_ketua_wakil_kelompok');
+        if (!$request->has('pengurus_type_ids')) {
+            $dataGenerus['is_pengurus'] = $request->boolean('is_pengurus');
+            $dataGenerus['is_pengurus_muda_mudi'] = $request->boolean('is_pengurus_muda_mudi');
+            $dataGenerus['is_ketua_wakil_kelompok'] = $request->boolean('is_ketua_wakil_kelompok');
+        }
         
         // Create Data Generus
         $generus = Generus::create($dataGenerus);
+
+        // Sync Pengurus Types jika dikirim, atau fallback dari boolean legacy
+        if ($request->has('pengurus_type_ids')) {
+            $generus->syncPengurusTypes($request->input('pengurus_type_ids', []));
+        } else {
+            $typeIds = [];
+            if ($request->boolean('is_pengurus')) {
+                $t = PengurusType::where('code', 'PENGURUS_USMAN')->first();
+                if ($t) $typeIds[] = $t->id;
+            }
+            if ($request->boolean('is_pengurus_muda_mudi')) {
+                $t = PengurusType::where('code', 'PENGURUS_MUDA_MUDI')->first();
+                if ($t) $typeIds[] = $t->id;
+            }
+            if ($request->boolean('is_ketua_wakil_kelompok')) {
+                $t = PengurusType::where('code', 'KETUA_WAKIL_KELOMPOK')->first();
+                if ($t) $typeIds[] = $t->id;
+            }
+            if (!empty($typeIds)) {
+                $generus->syncPengurusTypes($typeIds);
+            }
+        }
+
+        $generus->load('pengurusTypes:id,name,code,badge_color');
 
         return response()->json(['success' => true, 'message' => 'Data Generus berhasil ditambahkan', 'data' => $generus], 201);
     }
@@ -94,23 +123,49 @@ class GenerusController extends Controller
         if (!$generus) return response()->json(['success' => false, 'message' => 'Data tidak ditemukan'], 404);
 
         $validator = Validator::make($request->all(), [
-            'nama_lengkap'  => 'required|string|max:255',
-            'jenis_kelamin' => 'required|in:L,P',
-            'kelompok'      => 'nullable|string|max:255',
-            'jenjang'       => 'nullable|string|max:255',
-            'is_pengurus'   => 'nullable|boolean',
-            'is_pengurus_muda_mudi' => 'nullable|boolean',
+            'nama_lengkap'            => 'required|string|max:255',
+            'jenis_kelamin'           => 'required|in:L,P',
+            'kelompok'                => 'nullable|string|max:255',
+            'jenjang'                 => 'nullable|string|max:255',
+            'is_pengurus'             => 'nullable|boolean',
+            'is_pengurus_muda_mudi'   => 'nullable|boolean',
             'is_ketua_wakil_kelompok' => 'nullable|boolean',
-            'status'        => 'required|in:aktif,tidak aktif,pasif',
+            'pengurus_type_ids'       => 'nullable|array',
+            'pengurus_type_ids.*'     => 'integer|exists:pengurus_types,id',
+            'status'                  => 'required|in:aktif,tidak aktif,pasif',
         ]);
 
         if ($validator->fails()) return response()->json(['success' => false, 'message' => $validator->errors()], 422);
 
-        $updateData = $request->all();
-        $updateData['is_pengurus'] = $request->boolean('is_pengurus');
-        $updateData['is_pengurus_muda_mudi'] = $request->boolean('is_pengurus_muda_mudi');
-        $updateData['is_ketua_wakil_kelompok'] = $request->boolean('is_ketua_wakil_kelompok');
+        $updateData = $request->except(['pengurus_type_ids']);
+        if (!$request->has('pengurus_type_ids')) {
+            $updateData['is_pengurus'] = $request->boolean('is_pengurus');
+            $updateData['is_pengurus_muda_mudi'] = $request->boolean('is_pengurus_muda_mudi');
+            $updateData['is_ketua_wakil_kelompok'] = $request->boolean('is_ketua_wakil_kelompok');
+        } else {
+            unset($updateData['is_pengurus'], $updateData['is_pengurus_muda_mudi'], $updateData['is_ketua_wakil_kelompok']);
+        }
         $generus->update($updateData);
+
+        // Sync Pengurus Types jika dikirim
+        if ($request->has('pengurus_type_ids')) {
+            $generus->syncPengurusTypes($request->input('pengurus_type_ids', []));
+        } else {
+            $typeIds = [];
+            if ($request->boolean('is_pengurus')) {
+                $t = PengurusType::where('code', 'PENGURUS_USMAN')->first();
+                if ($t) $typeIds[] = $t->id;
+            }
+            if ($request->boolean('is_pengurus_muda_mudi')) {
+                $t = PengurusType::where('code', 'PENGURUS_MUDA_MUDI')->first();
+                if ($t) $typeIds[] = $t->id;
+            }
+            if ($request->boolean('is_ketua_wakil_kelompok')) {
+                $t = PengurusType::where('code', 'KETUA_WAKIL_KELOMPOK')->first();
+                if ($t) $typeIds[] = $t->id;
+            }
+            $generus->syncPengurusTypes($typeIds);
+        }
 
         // Update the user's role and name if they have an associated user
         if ($generus->user_id) {
@@ -126,6 +181,8 @@ class GenerusController extends Controller
                 $user->update($userUpdate);
             }
         }
+
+        $generus->load('pengurusTypes:id,name,code,badge_color');
 
         return response()->json(['success' => true, 'message' => 'Data Generus berhasil diupdate', 'data' => $generus], 200);
     }
@@ -337,7 +394,7 @@ class GenerusController extends Controller
     public function exportCsv()
     {
         $fileName = 'data_generus_' . date('Ymd_His') . '.csv';
-        $generus = Generus::all();
+        $generus = Generus::with('pengurusTypes:id,name')->get();
 
         $headers = [
             "Content-type"        => "text/csv; charset=UTF-8",
@@ -357,6 +414,15 @@ class GenerusController extends Controller
             fputcsv($file, $columns, ';');
 
             foreach ($generus as $g) {
+                $pengurusStr = $g->pengurusTypes->pluck('name')->join(', ');
+                if (empty($pengurusStr)) {
+                    $roles = [];
+                    if ($g->is_pengurus) $roles[] = 'Pengurus Usman';
+                    if ($g->is_pengurus_muda_mudi) $roles[] = 'Pengurus Muda Mudi';
+                    if ($g->is_ketua_wakil_kelompok) $roles[] = 'Ketua/Wakil Kelompok';
+                    $pengurusStr = !empty($roles) ? implode(', ', $roles) : 'Tidak';
+                }
+
                 fputcsv($file, [
                     $g->id,
                     $g->kode_unik,
@@ -368,7 +434,7 @@ class GenerusController extends Controller
                     $g->umur,
                     $g->jenis_kelamin,
                     $g->jenjang,
-                    $g->is_pengurus ? 'Ya' : 'Tidak',
+                    $pengurusStr,
                     $g->keterangan,
                     $g->libur,
                     $g->nama_ayah,

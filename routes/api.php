@@ -11,6 +11,8 @@ use App\Http\Controllers\Api\EventTypeController;
 use App\Http\Controllers\Api\GroupScheduleController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\MtController;
+use App\Http\Controllers\Api\MeetingNoteController;
+use App\Http\Controllers\Api\PengurusTypeController;
 // ==========================================
 // PUBLIC ROUTES (Tidak Perlu Login)
 // ==========================================
@@ -37,6 +39,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('admin/events', [EventController::class, 'index']);
         Route::get('admin/events/{event}', [EventController::class, 'show']);
         Route::get('admin/event-types', [EventTypeController::class, 'index']);
+        Route::get('admin/pengurus-types', [PengurusTypeController::class, 'index']);
         Route::get('admin/generus', [\App\Http\Controllers\Api\GenerusController::class, 'index']);
         Route::get('admin/events/{id}/summary', [AttendanceController::class, 'summary']);
         Route::get('admin/attendance/export/{eventId}', [AttendanceController::class, 'exportCsv']);
@@ -65,6 +68,18 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::apiResource('admin/users', AdminUserController::class);
         // Otomatis membuat rute: GET, POST, PUT, DELETE untuk /admin/events
         Route::apiResource('admin/event-types', EventTypeController::class)->except(['index']);
+        
+        // Rute Notulen Musyawarah & Planning
+        Route::get('admin/notulen/events-list', [MeetingNoteController::class, 'eventsList']);
+        Route::get('admin/events/{eventId}/notulen', [MeetingNoteController::class, 'getByEvent']);
+        Route::apiResource('admin/notulen', MeetingNoteController::class);
+
+        // Rute Master & Manajemen Pengurus
+        Route::get('admin/pengurus-types/{id}/members', [PengurusTypeController::class, 'members']);
+        Route::get('admin/pengurus-types/{id}/candidates', [PengurusTypeController::class, 'candidateMembers']);
+        Route::post('admin/pengurus-types/{id}/bulk-assign', [PengurusTypeController::class, 'bulkAssign']);
+        Route::post('admin/pengurus-types/{id}/remove-members', [PengurusTypeController::class, 'removeMembers']);
+        Route::apiResource('admin/pengurus-types', PengurusTypeController::class)->except(['index']);
     });
 
     // ------------------------------------------

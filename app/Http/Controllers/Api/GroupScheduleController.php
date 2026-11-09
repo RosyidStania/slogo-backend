@@ -90,7 +90,9 @@ class GroupScheduleController extends Controller
 
         $targetKategori = $request->target_kategori;
         if (empty($targetKategori)) {
-            $targetKategori = $schedule->target_kategori ?: ($eventType?->target_kategori ?? ScheduledEventGenerator::DEFAULT_TARGET_KATEGORI);
+            $targetKategori = !empty($eventType?->target_kategori)
+                ? $eventType->target_kategori
+                : ($schedule->target_kategori ?: ScheduledEventGenerator::DEFAULT_TARGET_KATEGORI);
         }
 
         $schedule->update([

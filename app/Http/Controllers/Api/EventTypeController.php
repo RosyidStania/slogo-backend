@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\EventType;
+use App\Models\GroupSchedule;
+use App\Models\Event;
 
 class EventTypeController extends Controller
 {
@@ -65,6 +67,15 @@ class EventTypeController extends Controller
             'description' => $request->description,
             'is_group_attendance' => $request->is_group_attendance ?? false
         ]);
+
+        if ($type->is_group_attendance) {
+            GroupSchedule::where('event_type_id', $type->id)
+                ->update(['target_kategori' => $request->target_kategori]);
+
+            Event::where('event_type_id', $type->id)
+                ->where('is_closed', false)
+                ->update(['target_kategori' => json_encode($request->target_kategori)]);
+        }
 
         return response()->json(['success' => true, 'data' => $type], 200);
     }

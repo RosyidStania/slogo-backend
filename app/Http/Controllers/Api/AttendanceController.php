@@ -31,7 +31,7 @@ class AttendanceController extends Controller
                             ->get();
 
             // Hitung target generus
-            $allGenerus = \App\Models\Generus::whereIn('status', ['aktif', 'pasif'])->get();
+            $allGenerus = \App\Models\Generus::with('pengurusTypes:id,name,code')->whereIn('status', ['aktif', 'pasif'])->get();
             $targetKategori = json_decode($event->target_kategori, true) ?: [];
             
             $filteredGenerus = $allGenerus;
@@ -54,6 +54,8 @@ class AttendanceController extends Controller
                             if ($g->is_pengurus_muda_mudi) $match = true;
                         } elseif ($tLower === 'ketua/wakil kelompok') {
                             if ($g->is_ketua_wakil_kelompok) $match = true;
+                        } elseif ($g->pengurusTypes && $g->pengurusTypes->contains(fn($pt) => strtolower($pt->name) === $tLower || strtolower($pt->code) === $tLower)) {
+                            $match = true;
                         } else {
                             if (str_contains($j, $tLower)) $match = true;
                         }
@@ -100,6 +102,8 @@ class AttendanceController extends Controller
                                 if ($g->is_pengurus_muda_mudi) $match = true;
                             } elseif ($tLower === 'ketua/wakil kelompok') {
                                 if ($g->is_ketua_wakil_kelompok) $match = true;
+                            } elseif ($g->pengurusTypes && $g->pengurusTypes->contains(fn($pt) => strtolower($pt->name) === $tLower || strtolower($pt->code) === $tLower)) {
+                                $match = true;
                             } else {
                                 if (str_contains($j, $tLower)) $match = true;
                             }

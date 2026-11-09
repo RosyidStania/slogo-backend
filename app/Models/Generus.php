@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-// Tambahkan baris import ini
 use Illuminate\Database\Eloquent\Factories\HasFactory; 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
@@ -33,6 +32,29 @@ class Generus extends Model
     public function user()
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function pengurusTypes()
+    {
+        return $this->belongsToMany(PengurusType::class, 'generus_pengurus', 'generus_id', 'pengurus_type_id')
+                    ->withTimestamps();
+    }
+
+    /**
+     * Sinkronisasi jenis pengurus dan otomatis jaga kompatibilitas kolom legacy
+     */
+    public function syncPengurusTypes(array $typeIds): void
+    {
+        $this->pengurusTypes()->sync($typeIds);
+
+        // Ambil code dari tipe yang di-assign untuk sinkronisasi kolom boolean lama
+        $codes = PengurusType::whereIn('id', $typeIds)->pluck('code')->toArray();
+
+        $this->update([
+            'is_pengurus'              => in_array('PENGURUS_USMAN', $codes),
+            'is_pengurus_muda_mudi'    => in_array('PENGURUS_MUDA_MUDI', $codes),
+            'is_ketua_wakil_kelompok' => in_array('KETUA_WAKIL_KELOMPOK', $codes),
+        ]);
     }
 
     public function getNamaLengkapAttribute($value)

@@ -40,7 +40,7 @@ class EventController extends Controller
 
         $events = $query->get();
         
-        $allGenerus = \App\Models\Generus::whereIn('status', ['aktif', 'pasif'])->get();
+        $allGenerus = \App\Models\Generus::with('pengurusTypes:id,name,code')->whereIn('status', ['aktif', 'pasif'])->get();
 
         foreach($events as $event) {
             $targetKategori = json_decode($event->target_kategori, true) ?: [];
@@ -66,6 +66,8 @@ class EventController extends Controller
                             if ($g->is_pengurus_muda_mudi) $match = true;
                         } elseif ($tLower === 'ketua/wakil kelompok') {
                             if ($g->is_ketua_wakil_kelompok) $match = true;
+                        } elseif ($g->pengurusTypes && $g->pengurusTypes->contains(fn($pt) => strtolower($pt->name) === $tLower || strtolower($pt->code) === $tLower)) {
+                            $match = true;
                         } else {
                             if (str_contains($j, $tLower)) $match = true;
                         }
@@ -94,7 +96,7 @@ class EventController extends Controller
         }
 
         $targetKategori = json_decode($event->target_kategori, true) ?: [];
-        $allGenerus = \App\Models\Generus::whereIn('status', ['aktif', 'pasif'])->get();
+        $allGenerus = \App\Models\Generus::with('pengurusTypes:id,name,code')->whereIn('status', ['aktif', 'pasif'])->get();
 
         $filteredGenerus = $allGenerus;
         if (!empty($event->kelompok)) {
@@ -116,6 +118,8 @@ class EventController extends Controller
                         if ($g->is_pengurus_muda_mudi) $match = true;
                     } elseif ($tLower === 'ketua/wakil kelompok') {
                         if ($g->is_ketua_wakil_kelompok) $match = true;
+                    } elseif ($g->pengurusTypes && $g->pengurusTypes->contains(fn($pt) => strtolower($pt->name) === $tLower || strtolower($pt->code) === $tLower)) {
+                        $match = true;
                     } else {
                         if (str_contains($j, $tLower)) $match = true;
                     }
