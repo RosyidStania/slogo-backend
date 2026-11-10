@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Models\Event;
 use App\Services\ScheduledEventGenerator;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Validator;
@@ -142,13 +143,17 @@ class EventController extends Controller
         if ($user && $user->role === 'absen_kelompok' && strcasecmp($event->kelompok ?? '', $user->kelompok ?? '') !== 0) {
             return response()->json(['success' => false, 'message' => 'Akses ditolak.'], 403);
         }
+
         $event->is_closed = !$event->is_closed;
+        // Tandai auto_closed_at agar background auto-closer (ScheduledEventGenerator)
+        // tidak langsung menutup kembali acara yang dibuka/diatur manual oleh operator
+        $event->auto_closed_at = Carbon::now();
         $event->save();
 
         return response()->json([
             'success' => true,
             'message' => 'Status acara berhasil diubah',
-            'is_closed' => $event->is_closed
+            'is_closed' => (bool) $event->is_closed
         ], 200);
     }
 

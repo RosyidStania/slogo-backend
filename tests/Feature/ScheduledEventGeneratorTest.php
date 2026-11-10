@@ -154,6 +154,41 @@ class ScheduledEventGeneratorTest extends TestCase
         $this->assertFalse((bool) $event->fresh()->is_closed);
     }
 
+    public function test_toggle_status_reopens_expired_event_and_it_stays_open(): void
+    {
+        $this->seed(GroupScheduleSeeder::class);
+        $generator = app(ScheduledEventGenerator::class);
+
+        // Generate events for 17:45 (Jekani: 18:15 - 19:00, auto-close at 21:00)
+        $generator->run(Carbon::parse('2026-11-10 17:45:00', 'Asia/Jakarta'));
+        $event = Event::where('kelompok', 'Jekani')->firstOrFail();
+
+        // Operator closes it manually before auto-close (auto_closed_at is null)
+        $event->update(['is_closed' => true, 'auto_closed_at' => null]);
+
+        // Now time is 21:30 (past auto close time)
+        // Operator re-opens the event via toggleStatus
+        $admin = \App\Models\User::create([
+            'name' => 'Admin Test',
+            'username' => 'admintest_' . uniqid(),
+            'password' => bcrypt('password'),
+            'role' => 'admin',
+        ]);
+
+        $this->actingAs($admin)
+            ->patchJson("/api/admin/events/{$event->id}/toggle-status")
+            ->assertOk()
+            ->assertJson(['success' => true, 'is_closed' => false]);
+
+        $this->assertFalse((bool) $event->fresh()->is_closed);
+
+        // Now generator runs again at 21:35
+        $generator->run(Carbon::parse('2026-11-10 21:35:00', 'Asia/Jakarta'));
+
+        // Event MUST stay open!
+        $this->assertFalse((bool) $event->fresh()->is_closed);
+    }
+
     public function test_two_schedules_same_kelompok_same_day_both_generate(): void
     {
         $this->seed(GroupScheduleSeeder::class);
