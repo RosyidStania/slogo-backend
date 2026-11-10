@@ -16,7 +16,7 @@ use App\Http\Controllers\Api\PengurusTypeController;
 // ==========================================
 // PUBLIC ROUTES (Tidak Perlu Login)
 // ==========================================
-Route::post('/login', [AuthController::class, 'login']);
+Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
 // Rute penyelamat jika token kadaluarsa
 Route::get('/login', function () {
     return response()->json(['success' => false, 'message' => 'Sesi Anda telah habis. Silakan login ulang.'], 401);
@@ -95,9 +95,9 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     // ------------------------------------------
-    // KHUSUS USER (Generus) & MT
+    // KHUSUS USER (Generus), MT & ADMIN (Profil)
     // ------------------------------------------
-    Route::middleware('role:user,mt')->group(function () {
+    Route::middleware('role:user,mt,admin')->group(function () {
         Route::get('/user/profile', [AuthController::class, 'profile']);
         Route::put('/user/profile', [AuthController::class, 'updateProfile']);
         Route::get('/user/report', [\App\Http\Controllers\Api\UserDashboardController::class, 'report']);

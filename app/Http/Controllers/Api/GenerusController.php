@@ -406,12 +406,19 @@ class GenerusController extends Controller
 
         $columns = ['ID', 'Kode Unik', 'Nama Lengkap', 'Kelompok', 'Status', 'Tempat Lahir', 'Tanggal Lahir', 'Umur', 'Jenis Kelamin', 'Jenjang', 'Pengurus', 'Keterangan', 'Libur', 'Nama Ayah', 'Nama Ibu', 'No HP', 'Akun Media', 'Hobi', 'Dibuat Pada'];
 
-        $callback = function() use($generus, $columns) {
+        $sanitizeCsvCell = function ($value) {
+            if (is_string($value) && preg_match('/^[=+\-@\t\r]/', $value)) {
+                return "'" . $value;
+            }
+            return $value;
+        };
+
+        $callback = function() use($generus, $columns, $sanitizeCsvCell) {
             $file = fopen('php://output', 'w');
             // Tambahkan BOM untuk kompatibilitas UTF-8 di Excel
             fputs($file, "\xEF\xBB\xBF");
             // Gunakan separator titik koma (;) agar Excel bahasa Indonesia bisa memisahkan kolom secara otomatis
-            fputcsv($file, $columns, ';');
+            fputcsv($file, array_map($sanitizeCsvCell, $columns), ';');
 
             foreach ($generus as $g) {
                 $pengurusStr = $g->pengurusTypes->pluck('name')->join(', ');
@@ -423,7 +430,7 @@ class GenerusController extends Controller
                     $pengurusStr = !empty($roles) ? implode(', ', $roles) : 'Tidak';
                 }
 
-                fputcsv($file, [
+                $row = [
                     $g->id,
                     $g->kode_unik,
                     $g->nama_lengkap,
@@ -443,7 +450,9 @@ class GenerusController extends Controller
                     $g->akun_media,
                     $g->hobi,
                     $g->created_at ? $g->created_at->format('Y-m-d H:i:s') : '',
-                ], ';');
+                ];
+
+                fputcsv($file, array_map($sanitizeCsvCell, $row), ';');
             }
             fclose($file);
         };

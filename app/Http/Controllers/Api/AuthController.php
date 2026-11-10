@@ -61,7 +61,7 @@ class AuthController extends Controller
     {
         $user = $request->user();
 
-        $request->validate([
+        $rules = [
             'name' => 'required|string|max:255',
             'username' => 'required|string|max:255|unique:users,username,' . $user->id,
             'tempat_lahir' => 'nullable|string|max:255',
@@ -74,19 +74,25 @@ class AuthController extends Controller
             'hobi' => 'nullable|string|max:255',
             'keterangan' => 'nullable|string|max:255',
             'libur' => 'nullable|string|max:255',
-            'kelompok' => 'nullable|string|max:255',
-            'jenjang' => 'nullable|in:PAUD,TK,1 SD,2 SD,3 SD,4 SD,5 SD,6 SD,1 SMP,2 SMP,3 SMP,1 SMA/SMK,2 SMA/SMK,3 SMA/SMK,USMAN,MT',
-        ]);
+        ];
+
+        // Kelompok dan jenjang hanya boleh diubah oleh Administrator
+        if ($user->role === 'admin') {
+            $rules['kelompok'] = 'nullable|string|max:255';
+            $rules['jenjang'] = 'nullable|in:PAUD,TK,1 SD,2 SD,3 SD,4 SD,5 SD,6 SD,1 SMP,2 SMP,3 SMP,1 SMA/SMK,2 SMA/SMK,3 SMA/SMK,USMAN,MT';
+        }
+
+        $request->validate($rules);
 
         $user->name = $request->name;
         $user->username = strtolower($request->username);
-        if ($request->filled('kelompok')) {
+        if ($user->role === 'admin' && $request->filled('kelompok')) {
             $user->kelompok = $request->kelompok;
         }
         $user->save();
 
         if ($user->generus) {
-            $user->generus->update([
+            $generusUpdate = [
                 'nama_lengkap' => $request->name,
                 'tempat_lahir' => $request->tempat_lahir,
                 'tanggal_lahir' => $request->tanggal_lahir,
@@ -98,9 +104,18 @@ class AuthController extends Controller
                 'hobi' => $request->hobi,
                 'keterangan' => $request->keterangan,
                 'libur' => $request->libur,
-                'kelompok' => $request->filled('kelompok') ? $request->kelompok : $user->generus->kelompok,
-                'jenjang' => $request->filled('jenjang') ? $request->jenjang : $user->generus->jenjang,
-            ]);
+            ];
+
+            if ($user->role === 'admin') {
+                if ($request->filled('kelompok')) {
+                    $generusUpdate['kelompok'] = $request->kelompok;
+                }
+                if ($request->filled('jenjang')) {
+                    $generusUpdate['jenjang'] = $request->jenjang;
+                }
+            }
+
+            $user->generus->update($generusUpdate);
         }
 
         return response()->json([

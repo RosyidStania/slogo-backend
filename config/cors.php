@@ -28,9 +28,7 @@ return [
         'http://localhost:3000'
         
     ],
-    'allowed_origins_patterns' => [
-        '#^https://.*\.vercel\.app$#' // Mengizinkan semua subdomain vercel.app
-    ],
+    'allowed_origins_patterns' => [],
     'allowed_headers' => ['*'],
 
 ];

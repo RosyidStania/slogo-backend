@@ -250,13 +250,20 @@ class AttendanceController extends Controller
 
         $columns = ['ID Acara', 'Kode Unik Peserta', 'ID Peserta (Abaikan saat import)', 'Nama Lengkap', 'Status Kehadiran', 'Waktu Datang', 'Terlambat'];
 
-        $callback = function() use($attendances, $event, $columns) {
+        $sanitizeCsvCell = function ($value) {
+            if (is_string($value) && preg_match('/^[=+\-@\t\r]/', $value)) {
+                return "'" . $value;
+            }
+            return $value;
+        };
+
+        $callback = function() use($attendances, $event, $columns, $sanitizeCsvCell) {
             $file = fopen('php://output', 'w');
             fputs($file, "\xEF\xBB\xBF");
-            fputcsv($file, $columns, ';');
+            fputcsv($file, array_map($sanitizeCsvCell, $columns), ';');
 
             foreach ($attendances as $att) {
-                fputcsv($file, [
+                $row = [
                     $att->event_id,
                     $att->generus ? $att->generus->kode_unik : '',
                     $att->generus_id,
@@ -264,7 +271,8 @@ class AttendanceController extends Controller
                     $att->status,
                     $att->time_arrived,
                     $att->is_late ? 'Ya' : 'Tidak'
-                ], ';');
+                ];
+                fputcsv($file, array_map($sanitizeCsvCell, $row), ';');
             }
             fclose($file);
         };
