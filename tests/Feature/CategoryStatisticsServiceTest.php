@@ -409,4 +409,442 @@ class CategoryStatisticsServiceTest extends TestCase
         $this->assertSame('2026-03', $fallbackRes['period']['end_month']);
         $this->assertSame('Okt 2025 - Mar 2026', $fallbackRes['period']['label']);
     }
+
+    public function test_kelompok_filter_nullifies_desa_infaq_but_keeps_group_event_infaq(): void
+    {
+        $desaType = EventType::create([
+            'name' => 'Pengajian Desa',
+            'code' => 'DESA',
+            'start_time' => '19:30:00',
+            'target_kategori' => ['USMAN'],
+            'is_group_attendance' => false,
+        ]);
+
+        $kelompokType = EventType::create([
+            'name' => 'Pengajian Kelompok',
+            'code' => 'KELOMPOK',
+            'start_time' => '19:30:00',
+            'target_kategori' => ['USMAN'],
+            'is_group_attendance' => true,
+        ]);
+
+        $mixedType = EventType::create([
+            'name' => 'Agenda Campuran',
+            'code' => 'CAMPURAN',
+            'start_time' => '19:30:00',
+            'target_kategori' => ['USMAN'],
+            'is_group_attendance' => true,
+        ]);
+
+        $slogoMember = Generus::create([
+            'nama_lengkap' => 'Siti Slogo',
+            'jenis_kelamin' => 'P',
+            'kelompok' => ' Slogo ',
+            'status' => 'aktif',
+            'jenjang' => 'USMAN',
+        ]);
+        $gabuganMember = Generus::create([
+            'nama_lengkap' => 'Budi Gabugan',
+            'jenis_kelamin' => 'L',
+            'kelompok' => 'Gabugan',
+            'status' => 'aktif',
+            'jenjang' => 'USMAN',
+        ]);
+
+        // Desa event with infaq 500000
+        $desaEvent = Event::create([
+            'name' => 'Pengajian Desa Jan',
+            'event_date' => '2026-01-10',
+            'start_time' => '19:30:00',
+            'target_kategori' => json_encode(['USMAN']),
+            'event_type_id' => $desaType->id,
+            'kelompok' => null,
+            'infaq' => 500000,
+        ]);
+        Attendance::create(['event_id' => $desaEvent->id, 'generus_id' => $slogoMember->id, 'status' => 'hadir', 'is_late' => false]);
+        Attendance::create(['event_id' => $desaEvent->id, 'generus_id' => $gabuganMember->id, 'status' => 'hadir', 'is_late' => false]);
+
+        // Kelompok events: Slogo (with whitespace) = 120000, Gabugan = 80000
+        $slogoEvent = Event::create([
+            'name' => 'Pengajian Slogo Jan',
+            'event_date' => '2026-01-12',
+            'start_time' => '19:30:00',
+            'target_kategori' => json_encode(['USMAN']),
+            'event_type_id' => $kelompokType->id,
+            'kelompok' => ' Slogo ',
+            'infaq' => 120000,
+        ]);
+        Attendance::create(['event_id' => $slogoEvent->id, 'generus_id' => $slogoMember->id, 'status' => 'hadir', 'is_late' => false]);
+
+        $gabuganEvent = Event::create([
+            'name' => 'Pengajian Gabugan Jan',
+            'event_date' => '2026-01-13',
+            'start_time' => '19:30:00',
+            'target_kategori' => json_encode(['USMAN']),
+            'event_type_id' => $kelompokType->id,
+            'kelompok' => 'Gabugan',
+            'infaq' => 80000,
+        ]);
+        Attendance::create(['event_id' => $gabuganEvent->id, 'generus_id' => $gabuganMember->id, 'status' => 'hadir', 'is_late' => false]);
+
+        // Mixed category across 2 months: Month 1 Desa-only (infaq 300000), Month 2 Slogo event (infaq 90000)
+        $mixedDesaEvent = Event::create([
+            'name' => 'Campuran Desa Jan',
+            'event_date' => '2026-01-20',
+            'start_time' => '19:30:00',
+            'target_kategori' => json_encode(['USMAN']),
+            'event_type_id' => $mixedType->id,
+            'kelompok' => null,
+            'infaq' => 300000,
+        ]);
+        Attendance::create(['event_id' => $mixedDesaEvent->id, 'generus_id' => $slogoMember->id, 'status' => 'hadir', 'is_late' => false]);
+
+        $mixedSlogoEvent = Event::create([
+            'name' => 'Campuran Slogo Feb',
+            'event_date' => '2026-02-20',
+            'start_time' => '19:30:00',
+            'target_kategori' => json_encode(['USMAN']),
+            'event_type_id' => $mixedType->id,
+            'kelompok' => 'Slogo',
+            'infaq' => 90000,
+        ]);
+        Attendance::create(['event_id' => $mixedSlogoEvent->id, 'generus_id' => $slogoMember->id, 'status' => 'hadir', 'is_late' => false]);
+
+        $service = app(CategoryStatisticsService::class);
+        $res = $service->buildStatistics('2026-01', '2026-02', 'all', '  slogo  ', Carbon::parse('2026-02-28', 'Asia/Jakarta'));
+
+        $desaCat = collect($res['categories'])->firstWhere('event_type_id', $desaType->id);
+        $this->assertNotNull($desaCat);
+        $this->assertNull($desaCat['summary']['total_infaq']);
+        $this->assertNull($desaCat['monthly_series'][0]['infaq']);
+        $this->assertEquals(1, $desaCat['summary']['total_target']);
+        $this->assertEquals(1, $desaCat['summary']['total_hadir']);
+        $this->assertCount(1, $desaCat['group_breakdown']);
+        $this->assertSame('Slogo', $desaCat['group_breakdown'][0]['kelompok']);
+
+        $kelompokCat = collect($res['categories'])->firstWhere('event_type_id', $kelompokType->id);
+        $this->assertNotNull($kelompokCat);
+        $this->assertEquals(1, $kelompokCat['summary']['total_events']);
+        $this->assertEquals(1, $kelompokCat['summary']['total_target']);
+        $this->assertEquals(1, $kelompokCat['summary']['total_hadir']);
+        $this->assertEquals(120000, $kelompokCat['summary']['total_infaq']);
+        $this->assertEquals(120000, $kelompokCat['monthly_series'][0]['infaq']);
+
+        $mixedCat = collect($res['categories'])->firstWhere('event_type_id', $mixedType->id);
+        $this->assertNotNull($mixedCat);
+        $this->assertNull($mixedCat['monthly_series'][0]['infaq']);
+        $this->assertEquals(90000, $mixedCat['monthly_series'][1]['infaq']);
+        $this->assertEquals(90000, $mixedCat['summary']['total_infaq']);
+    }
+
+    public function test_allow_other_participants_and_zero_target_do_not_produce_negative_alpa_or_zero_division(): void
+    {
+        $smpType = EventType::create([
+            'name' => 'Kelas SMP',
+            'code' => 'SMP',
+            'start_time' => '18:30:00',
+            'target_kategori' => ['1 SMP'],
+            'is_group_attendance' => false,
+        ]);
+
+        $mtType = EventType::create([
+            'name' => 'Rapat MT',
+            'code' => 'MT',
+            'start_time' => '20:00:00',
+            'target_kategori' => ['MT'],
+            'is_group_attendance' => false,
+        ]);
+
+        $smp1 = Generus::create([
+            'nama_lengkap' => 'SMP Satu',
+            'jenis_kelamin' => 'L',
+            'kelompok' => 'Slogo',
+            'status' => 'aktif',
+            'jenjang' => '1 SMP',
+        ]);
+        $smp2 = Generus::create([
+            'nama_lengkap' => 'SMP Dua',
+            'jenis_kelamin' => 'P',
+            'kelompok' => 'Slogo',
+            'status' => 'aktif',
+            'jenjang' => '1 SMP',
+        ]);
+        $outsider = Generus::create([
+            'nama_lengkap' => 'Usman Gabugan',
+            'jenis_kelamin' => 'L',
+            'kelompok' => 'Gabugan',
+            'status' => 'aktif',
+            'jenjang' => 'USMAN',
+        ]);
+
+        // target_total = 2 (Slogo), but 3 attend (2 Slogo + 1 Gabugan outsider via allow_other_participants)
+        $overEvent = Event::create([
+            'name' => 'Kelas SMP Plus',
+            'event_date' => '2026-01-14',
+            'start_time' => '18:30:00',
+            'target_kategori' => json_encode(['1 SMP']),
+            'event_type_id' => $smpType->id,
+            'allow_other_participants' => true,
+        ]);
+        Attendance::create(['event_id' => $overEvent->id, 'generus_id' => $smp1->id, 'status' => 'hadir', 'is_late' => false]);
+        Attendance::create(['event_id' => $overEvent->id, 'generus_id' => $smp2->id, 'status' => 'hadir', 'is_late' => false]);
+        Attendance::create(['event_id' => $overEvent->id, 'generus_id' => $outsider->id, 'status' => 'hadir', 'is_late' => false]);
+
+        // target_total = 0 (no MT generus), yet 1 attendance recorded
+        $zeroTargetEvent = Event::create([
+            'name' => 'Rapat MT Darurat',
+            'event_date' => '2026-01-16',
+            'start_time' => '20:00:00',
+            'target_kategori' => json_encode(['MT']),
+            'event_type_id' => $mtType->id,
+            'allow_other_participants' => true,
+        ]);
+        Attendance::create(['event_id' => $zeroTargetEvent->id, 'generus_id' => $outsider->id, 'status' => 'hadir', 'is_late' => false]);
+
+        $service = app(CategoryStatisticsService::class);
+        $res = $service->buildStatistics('2026-01', '2026-01', 'all', null, Carbon::parse('2026-01-31', 'Asia/Jakarta'));
+
+        $smpCat = collect($res['categories'])->firstWhere('event_type_id', $smpType->id);
+        $this->assertEquals(2, $smpCat['summary']['total_target']);
+        $this->assertEquals(3, $smpCat['summary']['total_hadir']);
+        $this->assertEquals(0, $smpCat['summary']['total_alpa']);
+        $this->assertEquals(150, $smpCat['summary']['avg_percentage']);
+        $this->assertEquals(150, $smpCat['monthly_series'][0]['percentage']);
+
+        // Group breakdown must include both Slogo (target=2, hadir=2, pct=100) and Gabugan (target=0, hadir=1, pct=0)
+        $this->assertCount(2, $smpCat['group_breakdown']);
+        $slogoRow = collect($smpCat['group_breakdown'])->firstWhere('kelompok', 'Slogo');
+        $gabuganRow = collect($smpCat['group_breakdown'])->firstWhere('kelompok', 'Gabugan');
+        $this->assertSame(['kelompok' => 'Slogo', 'target_total' => 2, 'hadir' => 2, 'terlambat' => 0, 'izin_sakit' => 0, 'alpa' => 0, 'percentage' => 100], $slogoRow);
+        $this->assertSame(['kelompok' => 'Gabugan', 'target_total' => 0, 'hadir' => 1, 'terlambat' => 0, 'izin_sakit' => 0, 'alpa' => 0, 'percentage' => 0], $gabuganRow);
+
+        $mtCat = collect($res['categories'])->firstWhere('event_type_id', $mtType->id);
+        $this->assertEquals(0, $mtCat['summary']['total_target']);
+        $this->assertEquals(1, $mtCat['summary']['total_hadir']);
+        $this->assertEquals(0, $mtCat['summary']['total_alpa']);
+        $this->assertEquals(0, $mtCat['summary']['avg_percentage']);
+        $this->assertEquals(0, $mtCat['monthly_series'][0]['percentage']);
+        $this->assertCount(1, $mtCat['group_breakdown']);
+        $this->assertSame([
+            'kelompok' => 'Gabugan',
+            'target_total' => 0,
+            'hadir' => 1,
+            'terlambat' => 0,
+            'izin_sakit' => 0,
+            'alpa' => 0,
+            'percentage' => 0,
+        ], $mtCat['group_breakdown'][0]);
+    }
+
+    public function test_scope_filter_and_multi_events_per_month_aggregation(): void
+    {
+        $desaType = EventType::create([
+            'name' => 'Musyawarah Desa',
+            'code' => 'MUS_DESA',
+            'start_time' => '19:00:00',
+            'target_kategori' => ['USMAN'],
+            'is_group_attendance' => false,
+        ]);
+
+        $kelompokType = EventType::create([
+            'name' => 'Pengajian Malam Kelompok',
+            'code' => 'MALAM_KELOMPOK',
+            'start_time' => '19:30:00',
+            'target_kategori' => ['USMAN'],
+            'is_group_attendance' => true,
+        ]);
+
+        $g1 = Generus::create([
+            'nama_lengkap' => 'Ali',
+            'jenis_kelamin' => 'L',
+            'kelompok' => 'Slogo',
+            'status' => 'aktif',
+            'jenjang' => 'USMAN',
+        ]);
+        $g2 = Generus::create([
+            'nama_lengkap' => 'Ani',
+            'jenis_kelamin' => 'P',
+            'kelompok' => 'Slogo',
+            'status' => 'aktif',
+            'jenjang' => 'USMAN',
+        ]);
+        $g3 = Generus::create([
+            'nama_lengkap' => 'Tono',
+            'jenis_kelamin' => 'L',
+            'kelompok' => 'Gabugan',
+            'status' => 'aktif',
+            'jenjang' => 'USMAN',
+        ]);
+
+        $desaEvent = Event::create([
+            'name' => 'Musyawarah Desa Jan',
+            'event_date' => '2026-01-05',
+            'start_time' => '19:00:00',
+            'target_kategori' => json_encode(['USMAN']),
+            'event_type_id' => $desaType->id,
+            'infaq' => 100000,
+        ]);
+        Attendance::create(['event_id' => $desaEvent->id, 'generus_id' => $g1->id, 'status' => 'hadir', 'is_late' => false]);
+
+        // Two events in the same month (2026-01) under kelompokType
+        $kEvent1 = Event::create([
+            'name' => 'Pengajian Slogo',
+            'event_date' => '2026-01-10',
+            'start_time' => '19:30:00',
+            'target_kategori' => json_encode(['USMAN']),
+            'event_type_id' => $kelompokType->id,
+            'kelompok' => 'Slogo',
+            'infaq' => 40000,
+        ]);
+        Attendance::create(['event_id' => $kEvent1->id, 'generus_id' => $g1->id, 'status' => 'hadir', 'is_late' => true]);
+        Attendance::create(['event_id' => $kEvent1->id, 'generus_id' => $g2->id, 'status' => 'izin', 'is_late' => false]);
+
+        $kEvent2 = Event::create([
+            'name' => 'Pengajian Gabugan',
+            'event_date' => '2026-01-11',
+            'start_time' => '19:30:00',
+            'target_kategori' => json_encode(['USMAN']),
+            'event_type_id' => $kelompokType->id,
+            'kelompok' => 'Gabugan',
+            'infaq' => 60000,
+        ]);
+        Attendance::create(['event_id' => $kEvent2->id, 'generus_id' => $g3->id, 'status' => 'sakit', 'is_late' => false]);
+
+        $service = app(CategoryStatisticsService::class);
+        $todayWib = Carbon::parse('2026-01-31', 'Asia/Jakarta');
+
+        $desaOnly = $service->buildStatistics('2026-01', '2026-01', 'desa', null, $todayWib);
+        $this->assertCount(1, $desaOnly['categories']);
+        $this->assertSame('Musyawarah Desa', $desaOnly['categories'][0]['name']);
+
+        $kelompokOnly = $service->buildStatistics('2026-01', '2026-01', 'kelompok', null, $todayWib);
+        $this->assertCount(1, $kelompokOnly['categories']);
+        $cat = $kelompokOnly['categories'][0];
+        $this->assertSame('Pengajian Malam Kelompok', $cat['name']);
+        $this->assertEquals(2, $cat['summary']['total_events']);
+        $this->assertEquals(1, $cat['summary']['active_months']);
+        $this->assertEquals(3, $cat['summary']['total_target']); // 2 Slogo + 1 Gabugan
+        $this->assertEquals(1, $cat['summary']['total_hadir']);
+        $this->assertEquals(1, $cat['summary']['total_terlambat']);
+        $this->assertEquals(2, $cat['summary']['total_izin_sakit']); // 1 izin + 1 sakit
+        $this->assertEquals(0, $cat['summary']['total_alpa']);
+        $this->assertEquals(100000, $cat['summary']['total_infaq']);
+        $this->assertEquals(33, $cat['summary']['avg_percentage']); // round(1/3 * 100)
+
+        $month = $cat['monthly_series'][0];
+        $this->assertEquals(2, $month['events_count']);
+        $this->assertCount(2, $month['events']);
+        $this->assertEquals(3, $month['target_total']);
+        $this->assertEquals(1, $month['hadir']);
+        $this->assertEquals(1, $month['terlambat']);
+        $this->assertEquals(2, $month['izin_sakit']);
+        $this->assertEquals(0, $month['alpa']);
+        $this->assertEquals(100000, $month['infaq']);
+        $this->assertEquals(33, $month['percentage']);
+    }
+
+    public function test_target_matching_branches_and_sakit_status_aggregation(): void
+    {
+        $mudaMudiType = EventType::create([
+            'name' => 'Rapat MM',
+            'code' => 'RAPAT_MM',
+            'start_time' => '19:30:00',
+            'target_kategori' => ['PENGURUS MUDA MUDI'],
+            'is_group_attendance' => false,
+        ]);
+        $ketuaType = EventType::create([
+            'name' => 'Rapat Ketua Kelompok',
+            'code' => 'RAPAT_KETUA',
+            'start_time' => '20:00:00',
+            'target_kategori' => ['KETUA/WAKIL KELOMPOK'],
+            'is_group_attendance' => false,
+        ]);
+        $smaType = EventType::create([
+            'name' => 'Bina SMA',
+            'code' => 'BINA_SMA',
+            'start_time' => '18:30:00',
+            'target_kategori' => ['sma/smk'],
+            'is_group_attendance' => false,
+        ]);
+
+        // Legacy boolean flags without pengurusTypes pivot rows
+        $mmLeader = Generus::create([
+            'nama_lengkap' => 'Pengurus MM',
+            'jenis_kelamin' => 'L',
+            'kelompok' => 'Slogo',
+            'status' => 'aktif',
+            'jenjang' => 'USMAN',
+            'is_pengurus_muda_mudi' => true,
+        ]);
+        $ketuaKelompok = Generus::create([
+            'nama_lengkap' => 'Ketua Kelompok',
+            'jenis_kelamin' => 'L',
+            'kelompok' => 'Gabugan',
+            'status' => 'aktif',
+            'jenjang' => 'USMAN',
+            'is_ketua_wakil_kelompok' => true,
+        ]);
+        $smaStudent = Generus::create([
+            'nama_lengkap' => 'Siswa SMA',
+            'jenis_kelamin' => 'P',
+            'kelompok' => 'Slogo',
+            'status' => 'aktif',
+            'jenjang' => '2 SMA/SMK',
+        ]);
+        $smpStudent = Generus::create([
+            'nama_lengkap' => 'Siswa SMP',
+            'jenis_kelamin' => 'L',
+            'kelompok' => 'Slogo',
+            'status' => 'aktif',
+            'jenjang' => '1 SMP',
+        ]);
+
+        $e1 = Event::create([
+            'name' => 'Rapat MM Jan',
+            'event_date' => '2026-01-08',
+            'start_time' => '19:30:00',
+            'target_kategori' => json_encode(['PENGURUS MUDA MUDI']),
+            'event_type_id' => $mudaMudiType->id,
+        ]);
+        Attendance::create(['event_id' => $e1->id, 'generus_id' => $mmLeader->id, 'status' => 'sakit', 'is_late' => false]);
+
+        $e2 = Event::create([
+            'name' => 'Rapat Ketua Jan',
+            'event_date' => '2026-01-09',
+            'start_time' => '20:00:00',
+            'target_kategori' => json_encode(['KETUA/WAKIL KELOMPOK']),
+            'event_type_id' => $ketuaType->id,
+        ]);
+        Attendance::create(['event_id' => $e2->id, 'generus_id' => $ketuaKelompok->id, 'status' => 'hadir', 'is_late' => false]);
+
+        $e3 = Event::create([
+            'name' => 'Bina SMA Jan',
+            'event_date' => '2026-01-10',
+            'start_time' => '18:30:00',
+            'target_kategori' => json_encode(['sma/smk']),
+            'event_type_id' => $smaType->id,
+        ]);
+        Attendance::create(['event_id' => $e3->id, 'generus_id' => $smaStudent->id, 'status' => 'hadir', 'is_late' => false]);
+        // Non-matching SMP student absent -> shouldn't affect target_total
+
+        $service = app(CategoryStatisticsService::class);
+        $res = $service->buildStatistics('2026-01', '2026-01', 'all', null, Carbon::parse('2026-01-31', 'Asia/Jakarta'));
+
+        $mmCat = collect($res['categories'])->firstWhere('event_type_id', $mudaMudiType->id);
+        $this->assertEquals(1, $mmCat['summary']['total_target']);
+        $this->assertEquals(0, $mmCat['summary']['total_hadir']);
+        $this->assertEquals(1, $mmCat['summary']['total_izin_sakit']);
+        $this->assertEquals(0, $mmCat['summary']['total_alpa']);
+
+        $ketuaCat = collect($res['categories'])->firstWhere('event_type_id', $ketuaType->id);
+        $this->assertEquals(1, $ketuaCat['summary']['total_target']);
+        $this->assertEquals(1, $ketuaCat['summary']['total_hadir']);
+        $this->assertEquals(100, $ketuaCat['summary']['avg_percentage']);
+
+        $smaCat = collect($res['categories'])->firstWhere('event_type_id', $smaType->id);
+        $this->assertEquals(1, $smaCat['summary']['total_target']);
+        $this->assertEquals(1, $smaCat['summary']['total_hadir']);
+        $this->assertEquals(100, $smaCat['summary']['avg_percentage']);
+        $this->assertNotEquals($smpStudent->id, $smaStudent->id);
+    }
 }

@@ -3,10 +3,13 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use App\Models\Event;
 use App\Models\Generus;
 use App\Models\Attendance;
+use App\Services\CategoryStatisticsService;
+use Carbon\Carbon;
 
 class ReportController extends Controller
 {
@@ -149,5 +152,44 @@ class ReportController extends Controller
             'events' => $events,
             'data' => $result
         ]);
+    }
+
+    public function categoryStatistics(Request $request, CategoryStatisticsService $service): JsonResponse
+    {
+        $validated = $request->validate([
+            'start_month' => ['nullable', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/'],
+            'end_month' => ['nullable', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/'],
+            'scope' => ['nullable', 'in:all,desa,kelompok'],
+            'kelompok' => ['nullable', 'string', 'max:100'],
+        ]);
+
+        $nowWib = Carbon::now(CategoryStatisticsService::TIMEZONE);
+        $scope = $validated['scope'] ?? 'all';
+        $kelompok = $validated['kelompok'] ?? null;
+        $startMonth = $validated['start_month'] ?? null;
+        $endMonth = $validated['end_month'] ?? null;
+
+        if ($startMonth === null || $endMonth === null) {
+            $resolvedPeriod = $service->resolvePeriod(
+                $startMonth,
+                $endMonth,
+                $kelompok,
+                $nowWib->toDateString(),
+                $scope
+            );
+            $startMonth = $resolvedPeriod['start_month'];
+            $endMonth = $resolvedPeriod['end_month'];
+        }
+
+        if ($startMonth > $endMonth) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Bulan mulai tidak boleh lebih besar dari bulan akhir.',
+            ], 422);
+        }
+
+        $data = $service->buildStatistics($startMonth, $endMonth, $scope, $kelompok, $nowWib);
+
+        return response()->json(array_merge(['success' => true], $data), 200);
     }
 }

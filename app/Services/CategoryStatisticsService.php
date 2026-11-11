@@ -193,13 +193,14 @@ class CategoryStatisticsService
         $eventKelompok = $this->normalizeNullableString($event->kelompok);
         if ($eventKelompok !== null) {
             $filteredGenerus = $filteredGenerus->filter(
-                fn (Generus $g) => strcasecmp((string) ($g->kelompok ?? ''), $eventKelompok) === 0
+                fn (Generus $g) => $this->matchesKelompok($g->kelompok, $eventKelompok)
             );
         }
 
-        if ($filterKelompok !== null) {
+        $normalizedFilterKelompok = $this->normalizeNullableString($filterKelompok);
+        if ($normalizedFilterKelompok !== null) {
             $filteredGenerus = $filteredGenerus->filter(
-                fn (Generus $g) => strcasecmp((string) ($g->kelompok ?? ''), $filterKelompok) === 0
+                fn (Generus $g) => $this->matchesKelompok($g->kelompok, $normalizedFilterKelompok)
             );
         }
 
@@ -290,6 +291,8 @@ class CategoryStatisticsService
                 'izin_sakit' => 0,
                 'alpa' => 0,
                 'infaq' => 0,
+                'has_desa_event' => false,
+                'has_group_event' => false,
             ];
         }
 
@@ -318,10 +321,16 @@ class CategoryStatisticsService
             }
 
             $eventKelompok = $this->normalizeNullableString($event->kelompok);
+            $isMatchingGroupEvent = $filterKelompok !== null
+                && $eventKelompok !== null
+                && $this->matchesKelompok($eventKelompok, $filterKelompok);
+
             if ($eventKelompok === null) {
                 $hasDesaEvent = true;
-            } elseif ($filterKelompok !== null && strcasecmp($eventKelompok, $filterKelompok) === 0) {
+                $monthlyBuckets[$monthKey]['has_desa_event'] = true;
+            } elseif ($isMatchingGroupEvent) {
                 $hasMatchingGroupEvent = true;
+                $monthlyBuckets[$monthKey]['has_group_event'] = true;
             }
 
             $targetGenerus = $this->resolveTargetGenerus($event, $eventType, $allGenerus, $filterKelompok);
@@ -329,26 +338,22 @@ class CategoryStatisticsService
             $attendances = $event->attendances;
             if ($filterKelompok !== null) {
                 $attendances = $attendances->filter(
-                    fn ($att) => strcasecmp((string) ($att->generus?->kelompok ?? ''), $filterKelompok) === 0
+                    fn ($att) => $this->matchesKelompok($att->generus?->kelompok, $filterKelompok)
                 );
             }
 
             $targetTotal = $targetGenerus->count();
-            $hadirAttendances = $attendances->filter(
-                fn ($att) => strtolower((string) $att->status) === 'hadir'
-            );
-            $hadirCount = $hadirAttendances->count();
-            $terlambatCount = $hadirAttendances->filter(fn ($att) => (bool) $att->is_late)->count();
-            $izinSakitCount = $attendances->filter(
-                fn ($att) => in_array(strtolower((string) $att->status), ['izin', 'sakit'], true)
-            )->count();
-            $alpaCount = max(0, $targetTotal - $hadirCount - $izinSakitCount);
+            $attSummary = $this->summarizeAttendances($attendances, $targetTotal);
+            $hadirAttendances = $attSummary['hadir_attendances'];
+            $hadirCount = $attSummary['hadir'];
+            $terlambatCount = $attSummary['terlambat'];
+            $izinSakitCount = $attSummary['izin_sakit'];
+            $alpaCount = $attSummary['alpa'];
             $eventPercentage = $targetTotal > 0 ? (int) round(($hadirCount / $targetTotal) * 100) : 0;
 
-            $eventInfaq = 0;
-            if ($filterKelompok === null || ($eventKelompok !== null && strcasecmp($eventKelompok, $filterKelompok) === 0)) {
-                $eventInfaq = (int) ($event->infaq ?? 0);
-            }
+            $eventInfaq = ($filterKelompok === null || $isMatchingGroupEvent)
+                ? (int) ($event->infaq ?? 0)
+                : 0;
 
             $monthlyBuckets[$monthKey]['events'][] = [
                 'id' => (int) $event->id,
@@ -404,6 +409,10 @@ class CategoryStatisticsService
                 $activePercentages[] = $percentage;
             }
 
+            $monthInfaq = ($filterKelompok !== null && !$bucket['has_group_event'] && $bucket['has_desa_event'])
+                ? null
+                : $bucket['infaq'];
+
             $monthlySeries[] = [
                 'month' => $monthKey,
                 'label' => $this->formatShortMonthLabel($monthKey),
@@ -415,7 +424,7 @@ class CategoryStatisticsService
                 'terlambat' => $bucket['terlambat'],
                 'izin_sakit' => $bucket['izin_sakit'],
                 'alpa' => $bucket['alpa'],
-                'infaq' => $bucket['infaq'],
+                'infaq' => $monthInfaq,
                 'percentage' => $percentage,
             ];
         }
@@ -502,10 +511,6 @@ class CategoryStatisticsService
             $targetsByGroup[$key]['count']++;
         }
 
-        if (empty($targetsByGroup)) {
-            return;
-        }
-
         $attendancesByGroup = [];
         foreach ($attendances as $att) {
             $kelompokName = $this->normalizeNullableString($att->generus?->kelompok);
@@ -513,22 +518,29 @@ class CategoryStatisticsService
                 continue;
             }
             $key = mb_strtolower($kelompokName, 'UTF-8');
-            $attendancesByGroup[$key][] = $att;
+            if (!isset($attendancesByGroup[$key])) {
+                $attendancesByGroup[$key] = [
+                    'name' => $kelompokName,
+                    'items' => [],
+                ];
+            }
+            $attendancesByGroup[$key]['items'][] = $att;
         }
 
-        foreach ($targetsByGroup as $key => $targetInfo) {
-            $groupAtts = collect($attendancesByGroup[$key] ?? []);
-            $hadirGroup = $groupAtts->filter(fn ($att) => strtolower((string) $att->status) === 'hadir');
-            $hadirCount = $hadirGroup->count();
-            $terlambatCount = $hadirGroup->filter(fn ($att) => (bool) $att->is_late)->count();
-            $izinSakitCount = $groupAtts->filter(
-                fn ($att) => in_array(strtolower((string) $att->status), ['izin', 'sakit'], true)
-            )->count();
-            $alpaCount = max(0, $targetInfo['count'] - $hadirCount - $izinSakitCount);
+        $allGroupKeys = array_unique(array_merge(array_keys($targetsByGroup), array_keys($attendancesByGroup)));
+        if (empty($allGroupKeys)) {
+            return;
+        }
+
+        foreach ($allGroupKeys as $key) {
+            $targetCount = $targetsByGroup[$key]['count'] ?? 0;
+            $kelompokName = $targetsByGroup[$key]['name'] ?? $attendancesByGroup[$key]['name'];
+            $groupAtts = collect($attendancesByGroup[$key]['items'] ?? []);
+            $attSummary = $this->summarizeAttendances($groupAtts, $targetCount);
 
             if (!isset($groupAccum[$key])) {
                 $groupAccum[$key] = [
-                    'kelompok' => $targetInfo['name'],
+                    'kelompok' => $kelompokName,
                     'target_total' => 0,
                     'hadir' => 0,
                     'terlambat' => 0,
@@ -537,12 +549,32 @@ class CategoryStatisticsService
                 ];
             }
 
-            $groupAccum[$key]['target_total'] += $targetInfo['count'];
-            $groupAccum[$key]['hadir'] += $hadirCount;
-            $groupAccum[$key]['terlambat'] += $terlambatCount;
-            $groupAccum[$key]['izin_sakit'] += $izinSakitCount;
-            $groupAccum[$key]['alpa'] += $alpaCount;
+            $groupAccum[$key]['target_total'] += $targetCount;
+            $groupAccum[$key]['hadir'] += $attSummary['hadir'];
+            $groupAccum[$key]['terlambat'] += $attSummary['terlambat'];
+            $groupAccum[$key]['izin_sakit'] += $attSummary['izin_sakit'];
+            $groupAccum[$key]['alpa'] += $attSummary['alpa'];
         }
+    }
+
+    protected function summarizeAttendances(Collection $attendances, int $targetTotal): array
+    {
+        $hadirAttendances = $attendances->filter(
+            fn ($att) => strtolower((string) $att->status) === 'hadir'
+        );
+        $hadir = $hadirAttendances->count();
+        $terlambat = $hadirAttendances->filter(fn ($att) => (bool) $att->is_late)->count();
+        $izinSakit = $attendances->filter(
+            fn ($att) => in_array(strtolower((string) $att->status), ['izin', 'sakit'], true)
+        )->count();
+
+        return [
+            'hadir_attendances' => $hadirAttendances,
+            'hadir' => $hadir,
+            'terlambat' => $terlambat,
+            'izin_sakit' => $izinSakit,
+            'alpa' => max(0, $targetTotal - $hadir - $izinSakit),
+        ];
     }
 
     protected function qualifyingEventsBaseQuery(
@@ -561,12 +593,13 @@ class CategoryStatisticsService
             $query->whereHas('eventType', fn (Builder $q) => $q->where('is_group_attendance', true));
         }
 
-        if ($kelompok !== null) {
-            $kelompokLower = mb_strtolower($kelompok, 'UTF-8');
+        $normalizedKelompok = $this->normalizeNullableString($kelompok);
+        if ($normalizedKelompok !== null) {
+            $kelompokLower = mb_strtolower($normalizedKelompok, 'UTF-8');
             $query->where(function (Builder $q) use ($kelompokLower) {
                 $q->whereNull('kelompok')
-                    ->orWhere('kelompok', '')
-                    ->orWhereRaw('LOWER(kelompok) = ?', [$kelompokLower]);
+                    ->orWhereRaw("TRIM(kelompok) = ''")
+                    ->orWhereRaw('LOWER(TRIM(kelompok)) = ?', [$kelompokLower]);
             });
         }
 
@@ -663,6 +696,14 @@ class CategoryStatisticsService
         $full = self::MONTH_FULL_NAMES[$monthNum] ?? $month;
 
         return $full . ' ' . $year;
+    }
+
+    protected function matchesKelompok(?string $candidate, string $expectedNormalized): bool
+    {
+        $normalizedCandidate = $this->normalizeNullableString($candidate);
+
+        return $normalizedCandidate !== null
+            && mb_strtolower($normalizedCandidate, 'UTF-8') === mb_strtolower($expectedNormalized, 'UTF-8');
     }
 
     protected function normalizeNullableString(?string $value): ?string

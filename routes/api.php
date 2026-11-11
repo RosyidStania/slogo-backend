@@ -63,6 +63,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('admin/dashboard-stats', [DashboardController::class, 'index']);
         Route::get('admin/reports/available-years', [ReportController::class, 'availableYears']);
         Route::get('admin/reports/attendance-by-type', [ReportController::class, 'attendanceByType']);
+        Route::get('admin/reports/category-statistics', [ReportController::class, 'categoryStatistics']);
         Route::delete('admin/users/destroy-all', [AdminUserController::class, 'destroyAllUsers']);
         Route::post('admin/users/generate-from-generus', [AdminUserController::class, 'generateFromGenerus']);
         Route::apiResource('admin/users', AdminUserController::class);
