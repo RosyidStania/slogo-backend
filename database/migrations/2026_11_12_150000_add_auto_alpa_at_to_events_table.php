@@ -12,7 +12,7 @@ return new class extends Migration
     {
         if (! Schema::hasColumn('events', 'auto_alpa_at')) {
             Schema::table('events', function (Blueprint $table) {
-                $table->timestamp('auto_alpa_at')->nullable()->after('auto_closed_at');
+                $table->timestamp('auto_alpa_at')->nullable()->after('auto_closed_at')->index();
             });
         }
 
@@ -34,6 +34,9 @@ return new class extends Migration
     {
         if (Schema::hasColumn('events', 'auto_alpa_at')) {
             Schema::table('events', function (Blueprint $table) {
+                if (Schema::hasIndex('events', ['auto_alpa_at'])) {
+                    $table->dropIndex(['auto_alpa_at']);
+                }
                 $table->dropColumn('auto_alpa_at');
             });
         }

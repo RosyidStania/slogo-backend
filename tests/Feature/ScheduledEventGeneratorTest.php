@@ -276,6 +276,9 @@ class ScheduledEventGeneratorTest extends TestCase
         $migration->up();
 
         $this->assertTrue(\Illuminate\Support\Facades\Schema::hasColumn('events', 'auto_alpa_at'));
+        $hasAutoAlpaIndex = collect(\Illuminate\Support\Facades\Schema::getIndexes('events'))
+            ->contains(fn (array $index): bool => in_array('auto_alpa_at', $index['columns'] ?? [], true));
+        $this->assertTrue($hasAutoAlpaIndex);
         $this->assertNotNull(\Illuminate\Support\Facades\DB::table('events')->where('id', $pastOpenId)->value('auto_alpa_at'));
         $this->assertNotNull(\Illuminate\Support\Facades\DB::table('events')->where('id', $todayClosedId)->value('auto_alpa_at'));
         $this->assertNotNull(\Illuminate\Support\Facades\DB::table('events')->where('id', $todayReopenedId)->value('auto_alpa_at'));
@@ -283,6 +286,10 @@ class ScheduledEventGeneratorTest extends TestCase
 
         $eventModel = Event::findOrFail($todayOpenId);
         $this->assertContains('auto_alpa_at', $eventModel->getFillable());
+
+        $reopenedModel = Event::findOrFail($todayReopenedId);
+        $this->assertInstanceOf(\Carbon\CarbonInterface::class, $reopenedModel->auto_closed_at);
+        $this->assertInstanceOf(\Carbon\CarbonInterface::class, $reopenedModel->auto_alpa_at);
     }
 
     private function createGenerus(array $overrides = []): Generus
@@ -479,7 +486,7 @@ class ScheduledEventGeneratorTest extends TestCase
         try {
             Carbon::setTestNow(Carbon::parse('2026-11-10 21:00:00', 'Asia/Jakarta'));
             $this->artisan('events:generate-scheduled')
-                ->expectsOutputToContain('peserta dialpakan')
+                ->expectsOutputToContain('0 peserta dialpakan')
                 ->assertExitCode(0);
         } finally {
             Carbon::setTestNow();
@@ -487,5 +494,89 @@ class ScheduledEventGeneratorTest extends TestCase
 
         $this->assertTrue((bool) $jekaniEvent->fresh()->is_closed);
         $this->assertDatabaseMissing('attendances', ['event_id' => $jekaniEvent->id, 'generus_id' => $g2->id]);
+    }
+
+    public function test_auto_alpa_matches_pengurus_via_pivot_relation_and_trims_whitespace_targets(): void
+    {
+        $eventType = EventType::create([
+            'name' => 'Musyawarah Pengurus',
+            'code' => 'MUSYAWARAH',
+            'start_time' => '18:30:00',
+            'target_kategori' => ['  PENGURUS USMAN  ', ' 1 SMP '],
+            'is_group_attendance' => false,
+        ]);
+
+        $event = Event::create([
+            'name' => 'Musyawarah Pengurus',
+            'event_date' => '2026-11-10',
+            'start_time' => '18:30:00',
+            'end_time' => '19:30:00',
+            'target_kategori' => json_encode(['  ', '']),
+            'event_type_id' => $eventType->id,
+            'kelompok' => 'Jekani',
+            'is_closed' => false,
+        ]);
+
+        $gHadir = $this->createGenerus(['nama_lengkap' => 'Hadir SMP', 'jenjang' => '1 SMP']);
+        $gPivotOnly = $this->createGenerus(['nama_lengkap' => 'Pivot Usman Only', 'jenjang' => 'USMAN', 'is_pengurus' => false]);
+        $usmanType = \App\Models\PengurusType::where('code', 'PENGURUS_USMAN')->firstOrFail();
+        // Attach langsung ke pivot tanpa mengaktifkan kolom boolean legacy is_pengurus.
+        $gPivotOnly->pengurusTypes()->attach($usmanType->id);
+        $gNonTarget = $this->createGenerus(['nama_lengkap' => 'Bukan Pengurus', 'jenjang' => 'USMAN']);
+
+        Attendance::create(['event_id' => $event->id, 'generus_id' => $gHadir->id, 'status' => 'hadir', 'time_arrived' => '18:25', 'is_late' => false]);
+
+        $res = app(ScheduledEventGenerator::class)->run(Carbon::parse('2026-11-10 21:30:00', 'Asia/Jakarta'));
+
+        $this->assertEquals(1, $res['alpa_marked']);
+        $this->assertDatabaseHas('attendances', ['event_id' => $event->id, 'generus_id' => $gPivotOnly->id, 'status' => 'alpa']);
+        $this->assertDatabaseMissing('attendances', ['event_id' => $event->id, 'generus_id' => $gNonTarget->id]);
+    }
+
+    public function test_inner_atomic_claim_skips_when_already_claimed_in_race_and_artisan_reports_exact_alpa_count(): void
+    {
+        $this->seed(GroupScheduleSeeder::class);
+        $generator = app(ScheduledEventGenerator::class);
+
+        $g1 = $this->createGenerus(['nama_lengkap' => 'Peserta Satu', 'jenjang' => '1 SMP']);
+        $g2 = $this->createGenerus(['nama_lengkap' => 'Peserta Dua', 'jenjang' => '1 SMP']);
+
+        $generator->run(Carbon::parse('2026-11-10 17:45:00', 'Asia/Jakarta'));
+        $jekaniEvent = Event::where('kelompok', 'Jekani')->firstOrFail();
+        Attendance::create(['event_id' => $jekaniEvent->id, 'generus_id' => $g1->id, 'status' => 'hadir', 'time_arrived' => '18:10', 'is_late' => false]);
+
+        // Simulasikan dua kandidat acara: satu untuk race inner claim, satu via artisan alpa > 0.
+        $staleEvent = Event::with(['groupSchedule', 'eventType'])->create([
+            'name' => 'Acara Konkuren',
+            'event_date' => '2026-11-10',
+            'start_time' => '18:00:00',
+            'end_time' => '18:30:00',
+            'target_kategori' => json_encode(['1 SMP']),
+            'kelompok' => 'Jekani',
+            'is_closed' => false,
+        ]);
+        Attendance::create(['event_id' => $staleEvent->id, 'generus_id' => $g1->id, 'status' => 'hadir', 'time_arrived' => '18:05', 'is_late' => false]);
+
+        // Proses lain mengklaim staleEvent setelah query awal membaca auto_alpa_at = null.
+        Event::where('id', $staleEvent->id)->update(['auto_alpa_at' => Carbon::now()]);
+
+        $method = new \ReflectionMethod(ScheduledEventGenerator::class, 'markRemainingTargetsAlpa');
+        $method->setAccessible(true);
+        $raceResult = $method->invoke($generator, $staleEvent);
+
+        $this->assertSame(0, $raceResult);
+        $this->assertDatabaseMissing('attendances', ['event_id' => $staleEvent->id, 'generus_id' => $g2->id]);
+
+        // Sekarang jalankan command artisan saat jekaniEvent jatuh tempo 2 jam setelah selesai.
+        try {
+            Carbon::setTestNow(Carbon::parse('2026-11-10 21:00:00', 'Asia/Jakarta'));
+            $this->artisan('events:generate-scheduled')
+                ->expectsOutputToContain('1 peserta dialpakan')
+                ->assertExitCode(0);
+        } finally {
+            Carbon::setTestNow();
+        }
+
+        $this->assertDatabaseHas('attendances', ['event_id' => $jekaniEvent->id, 'generus_id' => $g2->id, 'status' => 'alpa']);
     }
 }

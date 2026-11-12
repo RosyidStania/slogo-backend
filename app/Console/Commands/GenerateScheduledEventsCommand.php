@@ -19,7 +19,7 @@ class GenerateScheduledEventsCommand extends Command
      *
      * @var string
      */
-    protected $description = 'Otomatis membuat acara dari jadwal rutin kelompok (30 menit sebelum mulai) dan menutup acara 2 jam setelah selesai';
+    protected $description = 'Otomatis membuat acara terjadwal, menutup acara 2 jam setelah selesai, dan menandai sisa target belum absen sebagai alpa satu kali';
 
     /**
      * Execute the console command.

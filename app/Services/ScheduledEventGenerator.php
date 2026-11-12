@@ -6,9 +6,9 @@ use App\Models\Attendance;
 use App\Models\Event;
 use App\Models\Generus;
 use App\Models\GroupSchedule;
-use App\Support\TargetKategoriFilter;
 use Carbon\Carbon;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class ScheduledEventGenerator
@@ -148,6 +148,7 @@ class ScheduledEventGenerator
             ->where('is_closed', false)
             ->whereNull('auto_closed_at')
             ->whereNotNull('end_time')
+            ->where('end_time', '!=', '')
             ->get();
 
         $closedCount = 0;
@@ -169,10 +170,10 @@ class ScheduledEventGenerator
      */
     protected function resolveEventCloseAt(Event $event): Carbon
     {
-        $eventDate = Carbon::parse($event->event_date)->toDateString();
+        $eventDate = Carbon::parse($event->event_date, self::TIMEZONE)->toDateString();
         $endAt = Carbon::parse($eventDate . ' ' . $event->end_time, self::TIMEZONE);
 
-        if (! empty($event->start_time)) {
+        if (trim((string) $event->start_time) !== '') {
             $startAt = Carbon::parse($eventDate . ' ' . $event->start_time, self::TIMEZONE);
             if ($endAt->lessThanOrEqualTo($startAt)) {
                 $endAt->addDay();
@@ -193,6 +194,7 @@ class ScheduledEventGenerator
         $pendingEvents = Event::with(['groupSchedule', 'eventType'])
             ->whereNull('auto_alpa_at')
             ->whereNotNull('end_time')
+            ->where('end_time', '!=', '')
             ->get();
 
         $alpaMarkedCount = 0;
@@ -258,7 +260,10 @@ class ScheduledEventGenerator
                 ->reject(fn (Generus $generus) => isset($recordedLookup[$generus->id]))
                 ->values();
 
-            $targets = TargetKategoriFilter::filter($candidates, $this->resolveEventTargetKategori($event));
+            $targets = $this->filterTargetsByKategori(
+                $candidates,
+                $this->resolveEventTargetKategori($event)
+            );
 
             if ($targets->isEmpty()) {
                 return 0;
@@ -285,22 +290,111 @@ class ScheduledEventGenerator
     /**
      * Resolve daftar target_kategori acara dengan fallback ke template eventType.
      *
-     * @return array<int, mixed>
+     * @return array<int, string>
      */
     protected function resolveEventTargetKategori(Event $event): array
     {
-        $rawTarget = $event->target_kategori;
-        $targetKategori = is_string($rawTarget)
-            ? (json_decode($rawTarget, true) ?? [])
-            : (is_array($rawTarget) ? $rawTarget : []);
+        $targetKategori = $this->normalizeTargetKategoriList($event->target_kategori);
 
         if (empty($targetKategori) && $event->eventType) {
-            $typeTarget = $event->eventType->target_kategori;
-            $targetKategori = is_string($typeTarget)
-                ? (json_decode($typeTarget, true) ?? [])
-                : (is_array($typeTarget) ? $typeTarget : []);
+            $targetKategori = $this->normalizeTargetKategoriList($event->eventType->target_kategori);
         }
 
-        return is_array($targetKategori) ? $targetKategori : [];
+        return $targetKategori;
+    }
+
+    /**
+     * Decode dan bersihkan daftar target kategori dari string JSON atau array.
+     *
+     * @return array<int, string>
+     */
+    protected function normalizeTargetKategoriList(mixed $raw): array
+    {
+        $decoded = is_string($raw) ? json_decode($raw, true) : $raw;
+        if (! is_array($decoded)) {
+            return [];
+        }
+
+        return array_values(array_filter(
+            array_map(
+                static fn (mixed $item): string => is_scalar($item) ? trim((string) $item) : '',
+                $decoded
+            ),
+            static fn (string $item): bool => $item !== ''
+        ));
+    }
+
+    /**
+     * Filter kandidat generus berdasarkan kriteria target_kategori acara.
+     *
+     * @param Collection<int, Generus> $candidates
+     * @param array<int, string> $targetKategori
+     * @return Collection<int, Generus>
+     */
+    protected function filterTargetsByKategori(Collection $candidates, array $targetKategori): Collection
+    {
+        if (empty($targetKategori)) {
+            return $candidates;
+        }
+
+        $normalizedTargets = array_map(
+            static fn (string $target): string => strtolower(trim($target)),
+            $targetKategori
+        );
+
+        return $candidates
+            ->filter(fn (Generus $generus): bool => $this->matchesTargetKategori($generus, $normalizedTargets))
+            ->values();
+    }
+
+    /**
+     * Cocokkan satu generus terhadap daftar target kategori yang sudah dinormalisasi.
+     *
+     * @param array<int, string> $normalizedTargets
+     */
+    protected function matchesTargetKategori(Generus $generus, array $normalizedTargets): bool
+    {
+        $legacyRoleAliases = [
+            'pengurus' => ['field' => 'is_pengurus', 'code' => 'pengurus_usman', 'name' => 'pengurus usman'],
+            'pengurus usman' => ['field' => 'is_pengurus', 'code' => 'pengurus_usman', 'name' => 'pengurus usman'],
+            'pengurus muda mudi' => ['field' => 'is_pengurus_muda_mudi', 'code' => 'pengurus_muda_mudi', 'name' => 'pengurus muda mudi'],
+            'ketua/wakil kelompok' => ['field' => 'is_ketua_wakil_kelompok', 'code' => 'ketua_wakil_kelompok', 'name' => 'ketua/wakil kelompok'],
+        ];
+
+        $jenjangLower = strtolower((string) ($generus->jenjang ?? ''));
+        $pengurusTypes = $generus->pengurusTypes;
+
+        foreach ($normalizedTargets as $tLower) {
+            if (isset($legacyRoleAliases[$tLower])) {
+                $alias = $legacyRoleAliases[$tLower];
+                if (
+                    $generus->{$alias['field']}
+                    || ($pengurusTypes && $pengurusTypes->contains(
+                        static fn ($pt): bool => strtolower((string) $pt->code) === $alias['code']
+                            || strtolower((string) $pt->name) === $alias['name']
+                    ))
+                ) {
+                    return true;
+                }
+
+                continue;
+            }
+
+            if (
+                $pengurusTypes
+                && $pengurusTypes->contains(
+                    static fn ($pt): bool => strtolower((string) $pt->name) === $tLower
+                        || strtolower((string) $pt->code) === $tLower
+                )
+            ) {
+                return true;
+            }
+
+            if ($jenjangLower !== '' && str_contains($jenjangLower, $tLower)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
