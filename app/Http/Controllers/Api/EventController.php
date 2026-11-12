@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Api;
 
 use App\Models\Event;
+use App\Models\Generus;
 use App\Services\ScheduledEventGenerator;
+use App\Support\TargetKategoriFilter;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
@@ -40,42 +42,34 @@ class EventController extends Controller
         }
 
         $events = $query->get();
-        
-        $allGenerus = \App\Models\Generus::with('pengurusTypes:id,name,code')->whereIn('status', ['aktif', 'pasif'])->get();
 
-        foreach($events as $event) {
+        $generusQuery = Generus::select([
+                'id',
+                'kelompok',
+                'jenjang',
+                'status',
+                'is_pengurus',
+                'is_pengurus_muda_mudi',
+                'is_ketua_wakil_kelompok',
+            ])
+            ->with('pengurusTypes:id,name,code')
+            ->whereIn('status', ['aktif', 'pasif']);
+
+        if ($user && $user->role === 'absen_kelompok') {
+            $generusQuery->whereRaw('LOWER(kelompok) = ?', [strtolower($user->kelompok)]);
+        }
+
+        $allGenerus = $generusQuery->get();
+        $generusByKelompok = $allGenerus->groupBy(fn($g) => strtolower($g->kelompok ?? ''));
+
+        foreach ($events as $event) {
             $targetKategori = json_decode($event->target_kategori, true) ?: [];
-            
-            // Filter generus berdasarkan kelompok acara jika ada
-            $filteredGenerus = $allGenerus;
-            if (!empty($event->kelompok)) {
-                $filteredGenerus = $allGenerus->filter(fn($g) => strcasecmp($g->kelompok, $event->kelompok) === 0);
-            }
-            
-            $targetCount = 0;
-            if (empty($targetKategori)) {
-                $targetCount = $filteredGenerus->count();
-            } else {
-                foreach($filteredGenerus as $g) {
-                    $j = strtolower($g->jenjang ?? '');
-                    $match = false;
-                    foreach($targetKategori as $t) {
-                        $tLower = strtolower($t);
-                        if ($tLower === 'pengurus' || $tLower === 'pengurus usman') {
-                            if ($g->is_pengurus) $match = true;
-                        } elseif ($tLower === 'pengurus muda mudi') {
-                            if ($g->is_pengurus_muda_mudi) $match = true;
-                        } elseif ($tLower === 'ketua/wakil kelompok') {
-                            if ($g->is_ketua_wakil_kelompok) $match = true;
-                        } elseif ($g->pengurusTypes && $g->pengurusTypes->contains(fn($pt) => strtolower($pt->name) === $tLower || strtolower($pt->code) === $tLower)) {
-                            $match = true;
-                        } else {
-                            if (str_contains($j, $tLower)) $match = true;
-                        }
-                    }
-                    if ($match) $targetCount++;
-                }
-            }
+
+            $filteredGenerus = !empty($event->kelompok)
+                ? ($generusByKelompok->get(strtolower($event->kelompok)) ?? collect())
+                : $allGenerus;
+
+            $targetCount = TargetKategoriFilter::filter($filteredGenerus, $targetKategori)->count();
             $event->target_count = $targetCount;
             $event->is_closed = (bool) $event->is_closed;
             $event->is_completed = $event->is_closed || (!$event->allow_other_participants && $targetCount > 0 && $event->attendances_count >= $targetCount);
@@ -97,37 +91,23 @@ class EventController extends Controller
         }
 
         $targetKategori = json_decode($event->target_kategori, true) ?: [];
-        $allGenerus = \App\Models\Generus::with('pengurusTypes:id,name,code')->whereIn('status', ['aktif', 'pasif'])->get();
+        $generusQuery = Generus::select([
+                'id',
+                'kelompok',
+                'jenjang',
+                'status',
+                'is_pengurus',
+                'is_pengurus_muda_mudi',
+                'is_ketua_wakil_kelompok',
+            ])
+            ->with('pengurusTypes:id,name,code')
+            ->whereIn('status', ['aktif', 'pasif']);
 
-        $filteredGenerus = $allGenerus;
         if (!empty($event->kelompok)) {
-            $filteredGenerus = $allGenerus->filter(fn($g) => strcasecmp($g->kelompok ?? '', $event->kelompok) === 0);
+            $generusQuery->whereRaw('LOWER(kelompok) = ?', [strtolower($event->kelompok)]);
         }
 
-        $targetCount = 0;
-        if (empty($targetKategori)) {
-            $targetCount = $filteredGenerus->count();
-        } else {
-            foreach ($filteredGenerus as $g) {
-                $j = strtolower($g->jenjang ?? '');
-                $match = false;
-                foreach ($targetKategori as $t) {
-                    $tLower = strtolower($t);
-                    if ($tLower === 'pengurus' || $tLower === 'pengurus usman') {
-                        if ($g->is_pengurus) $match = true;
-                    } elseif ($tLower === 'pengurus muda mudi') {
-                        if ($g->is_pengurus_muda_mudi) $match = true;
-                    } elseif ($tLower === 'ketua/wakil kelompok') {
-                        if ($g->is_ketua_wakil_kelompok) $match = true;
-                    } elseif ($g->pengurusTypes && $g->pengurusTypes->contains(fn($pt) => strtolower($pt->name) === $tLower || strtolower($pt->code) === $tLower)) {
-                        $match = true;
-                    } else {
-                        if (str_contains($j, $tLower)) $match = true;
-                    }
-                }
-                if ($match) $targetCount++;
-            }
-        }
+        $targetCount = TargetKategoriFilter::filter($generusQuery->get(), $targetKategori)->count();
         $event->target_count = $targetCount;
         $event->is_closed = (bool) $event->is_closed;
         $event->is_completed = $event->is_closed || (!$event->allow_other_participants && $targetCount > 0 && $event->attendances_count >= $targetCount);

@@ -66,7 +66,18 @@ class CategoryStatisticsService
         $monthKeys = $this->buildMonthKeys($period['start_month'], $period['end_month']);
         $availableYears = $this->resolveAvailableYears($todayDate, (int) $nowWib->year);
 
-        $allGenerus = Generus::with('pengurusTypes:id,name,code')
+        $allGenerus = Generus::select([
+                'id',
+                'nama_lengkap',
+                'kelompok',
+                'jenis_kelamin',
+                'jenjang',
+                'status',
+                'is_pengurus',
+                'is_pengurus_muda_mudi',
+                'is_ketua_wakil_kelompok',
+            ])
+            ->with('pengurusTypes:id,name,code')
             ->whereRaw("LOWER(status) IN ('aktif', 'pasif')")
             ->get();
 

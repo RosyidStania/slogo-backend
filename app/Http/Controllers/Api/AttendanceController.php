@@ -6,6 +6,9 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\Event;
 use App\Models\Attendance;
+use App\Models\Generus;
+use App\Support\TargetKategoriFilter;
+use Illuminate\Support\Facades\DB;
 use Exception;
 
 class AttendanceController extends Controller
@@ -30,39 +33,17 @@ class AttendanceController extends Controller
                             ->orderBy('created_at', 'desc')
                             ->get();
 
-            // Hitung target generus
-            $allGenerus = \App\Models\Generus::with('pengurusTypes:id,name,code')->whereIn('status', ['aktif', 'pasif'])->get();
-            $targetKategori = json_decode($event->target_kategori, true) ?: [];
-            
-            $filteredGenerus = $allGenerus;
+            // Hitung target generus (filter kelompok di SQL jika acara khusus kelompok)
+            $generusQuery = Generus::with('pengurusTypes:id,name,code')
+                ->whereIn('status', ['aktif', 'pasif']);
+
             if (!empty($event->kelompok)) {
-                $filteredGenerus = $allGenerus->filter(fn($g) => strcasecmp($g->kelompok ?? '', $event->kelompok) === 0);
+                $generusQuery->whereRaw('LOWER(kelompok) = ?', [strtolower($event->kelompok)]);
             }
 
-            $targetGenerus = collect();
-            if (empty($targetKategori)) {
-                $targetGenerus = $filteredGenerus;
-            } else {
-                foreach($filteredGenerus as $g) {
-                    $j = strtolower($g->jenjang ?? '');
-                    $match = false;
-                    foreach($targetKategori as $t) {
-                        $tLower = strtolower($t);
-                        if ($tLower === 'pengurus' || $tLower === 'pengurus usman') {
-                            if ($g->is_pengurus) $match = true;
-                        } elseif ($tLower === 'pengurus muda mudi') {
-                            if ($g->is_pengurus_muda_mudi) $match = true;
-                        } elseif ($tLower === 'ketua/wakil kelompok') {
-                            if ($g->is_ketua_wakil_kelompok) $match = true;
-                        } elseif ($g->pengurusTypes && $g->pengurusTypes->contains(fn($pt) => strtolower($pt->name) === $tLower || strtolower($pt->code) === $tLower)) {
-                            $match = true;
-                        } else {
-                            if (str_contains($j, $tLower)) $match = true;
-                        }
-                    }
-                    if ($match) $targetGenerus->push($g);
-                }
-            }
+            $allGenerus = $generusQuery->get();
+            $targetKategori = json_decode($event->target_kategori, true) ?: [];
+            $targetGenerus = TargetKategoriFilter::filter($allGenerus, $targetKategori);
 
             $previousEvent = null;
             if (!empty($event->event_type_id)) {
@@ -83,34 +64,11 @@ class AttendanceController extends Controller
                                 ->get();
                 
                 $prevTargetKategori = json_decode($previousEvent->target_kategori, true) ?: [];
-                $prevFilteredGenerus = $allGenerus;
-                if (!empty($previousEvent->kelompok)) {
-                    $prevFilteredGenerus = $allGenerus->filter(fn($g) => strcasecmp($g->kelompok ?? '', $previousEvent->kelompok) === 0);
-                }
+                $prevFilteredGenerus = !empty($previousEvent->kelompok)
+                    ? $allGenerus->filter(fn($g) => strcasecmp($g->kelompok ?? '', $previousEvent->kelompok) === 0)->values()
+                    : $allGenerus;
 
-                if (empty($prevTargetKategori)) {
-                    $previousTargetGenerus = $prevFilteredGenerus;
-                } else {
-                    foreach($prevFilteredGenerus as $g) {
-                        $j = strtolower($g->jenjang ?? '');
-                        $match = false;
-                        foreach($prevTargetKategori as $t) {
-                            $tLower = strtolower($t);
-                            if ($tLower === 'pengurus' || $tLower === 'pengurus usman') {
-                                if ($g->is_pengurus) $match = true;
-                            } elseif ($tLower === 'pengurus muda mudi') {
-                                if ($g->is_pengurus_muda_mudi) $match = true;
-                            } elseif ($tLower === 'ketua/wakil kelompok') {
-                                if ($g->is_ketua_wakil_kelompok) $match = true;
-                            } elseif ($g->pengurusTypes && $g->pengurusTypes->contains(fn($pt) => strtolower($pt->name) === $tLower || strtolower($pt->code) === $tLower)) {
-                                $match = true;
-                            } else {
-                                if (str_contains($j, $tLower)) $match = true;
-                            }
-                        }
-                        if ($match) $previousTargetGenerus->push($g);
-                    }
-                }
+                $previousTargetGenerus = TargetKategoriFilter::filter($prevFilteredGenerus, $prevTargetKategori);
             }
 
             return response()->json([
@@ -165,8 +123,26 @@ class AttendanceController extends Controller
     {
         try {
             $user = $request->user();
-            foreach ($request->attendances as $att) {
-                $event = Event::find($att['event_id'] ?? null);
+            $items = $request->attendances ?? [];
+            if (empty($items)) {
+                return response()->json(['success' => true], 200);
+            }
+
+            $eventIds = array_values(array_unique(array_filter(array_column($items, 'event_id'))));
+            $eventsById = Event::whereIn('id', $eventIds)->get()->keyBy('id');
+
+            $kodeUniks = [];
+            foreach ($items as $att) {
+                if (empty($att['generus_id']) && !empty($att['kode_unik'])) {
+                    $kodeUniks[] = $att['kode_unik'];
+                }
+            }
+            $generusIdsByKode = !empty($kodeUniks)
+                ? Generus::whereIn('kode_unik', array_values(array_unique($kodeUniks)))->pluck('id', 'kode_unik')
+                : collect();
+
+            foreach ($items as $att) {
+                $event = $eventsById->get($att['event_id'] ?? null);
                 if (!$event) continue;
                 if ($event->is_closed) {
                     return response()->json(['success' => false, 'message' => 'Acara ini sudah ditutup.'], 403);
@@ -174,23 +150,27 @@ class AttendanceController extends Controller
                 if ($user && $user->role === 'absen_kelompok' && strcasecmp($event->kelompok ?? '', $user->kelompok ?? '') !== 0) {
                     return response()->json(['success' => false, 'message' => 'Akses ditolak.'], 403);
                 }
+            }
 
-                $generusId = $att['generus_id'] ?? null;
-                
-                if (!$generusId && !empty($att['kode_unik'])) {
-                    $generus = \App\Models\Generus::where('kode_unik', $att['kode_unik'])->first();
-                    if ($generus) {
-                        $generusId = $generus->id;
+            DB::transaction(function () use ($items, $eventsById, $generusIdsByKode) {
+                foreach ($items as $att) {
+                    $event = $eventsById->get($att['event_id'] ?? null);
+                    if (!$event) continue;
+
+                    $generusId = $att['generus_id'] ?? null;
+                    if (!$generusId && !empty($att['kode_unik'])) {
+                        $generusId = $generusIdsByKode->get($att['kode_unik']);
+                    }
+
+                    if ($generusId) {
+                        Attendance::updateOrCreate(
+                            ['event_id' => $att['event_id'], 'generus_id' => $generusId],
+                            ['status' => $att['status'], 'time_arrived' => $att['time_arrived'], 'is_late' => $att['is_late']]
+                        );
                     }
                 }
+            });
 
-                if ($generusId) {
-                    Attendance::updateOrCreate(
-                        ['event_id' => $att['event_id'], 'generus_id' => $generusId],
-                        ['status' => $att['status'], 'time_arrived' => $att['time_arrived'], 'is_late' => $att['is_late']]
-                    );
-                }
-            }
             return response()->json(['success' => true], 200);
         } catch (\Illuminate\Database\QueryException $e) {
             return response()->json(['success' => false, 'message' => 'Beberapa data gagal disimpan. Periksa validitas referensi event/generus.'], 422);

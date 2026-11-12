@@ -209,7 +209,11 @@ class MtController extends Controller
         $year = $request->query('year', date('Y'));
 
         // Sama seperti admin, get available years
-        $years = Event::selectRaw('YEAR(event_date) as year')
+        $yearExpr = \Illuminate\Support\Facades\DB::connection()->getDriverName() === 'sqlite'
+            ? "CAST(strftime('%Y', event_date) AS INTEGER) as year"
+            : 'YEAR(event_date) as year';
+
+        $years = Event::selectRaw($yearExpr)
             ->whereNotNull('event_date')
             ->distinct()
             ->orderBy('year', 'desc')
@@ -232,8 +236,9 @@ class MtController extends Controller
 
         $typeIds = is_array($typeId) ? $typeId : explode(',', $typeId);
 
-        $events = Event::whereIn('event_type_id', $typeIds)
-            ->whereYear('event_date', $year)
+        $events = Event::select(['id', 'event_type_id', 'name', 'event_date', 'start_time', 'kelompok', 'is_closed'])
+            ->whereIn('event_type_id', $typeIds)
+            ->whereBetween('event_date', ["{$year}-01-01", "{$year}-12-31"])
             ->where(function($q) use ($kelompok) {
                 $q->whereNull('kelompok')->orWhere('kelompok', $kelompok);
             })
@@ -252,7 +257,12 @@ class MtController extends Controller
         }
         $targetKategori = array_unique($targetKategori);
 
-        $generusQuery = Generus::where('kelompok', $kelompok)
+        $generusQuery = Generus::select([
+                'id', 'nama_lengkap', 'jenjang', 'kelompok', 'status',
+                'umur', 'jenis_kelamin', 'is_pengurus',
+                'is_pengurus_muda_mudi', 'is_ketua_wakil_kelompok'
+            ])
+            ->where('kelompok', $kelompok)
             ->orderByRaw("CASE WHEN status = 'Aktif' THEN 1 ELSE 2 END")
             ->orderByRaw("CASE 
                 WHEN jenjang = 'MT' THEN 0
@@ -292,23 +302,26 @@ class MtController extends Controller
 
         $allGenerus = $generusQuery->get();
 
-        $attendances = Attendance::whereIn('event_id', $eventIds)->get();
-        $attByGenerus = $attendances->groupBy('generus_id');
+        $attLookup = [];
+        if (!empty($eventIds)) {
+            $attendances = Attendance::select(['event_id', 'generus_id', 'status'])
+                ->whereIn('event_id', $eventIds)
+                ->get();
+
+            foreach ($attendances as $att) {
+                if (!isset($attLookup[$att->generus_id][$att->event_id])) {
+                    $attLookup[$att->generus_id][$att->event_id] = strtoupper(substr($att->status, 0, 1));
+                }
+            }
+        }
 
         $result = [];
         foreach ($allGenerus as $g) {
-            $gAtts = $attByGenerus->get($g->id) ?? collect();
+            $gAttMap = $attLookup[$g->id] ?? [];
             $eventStatus = [];
 
             foreach ($events as $event) {
-                $record = $gAtts->firstWhere('event_id', $event->id);
-                if ($record) {
-                    $status = $record->status; 
-                    $initial = strtoupper(substr($status, 0, 1));
-                    $eventStatus[$event->id] = $initial;
-                } else {
-                    $eventStatus[$event->id] = '-'; 
-                }
+                $eventStatus[$event->id] = $gAttMap[$event->id] ?? '-';
             }
 
             $result[] = [
@@ -347,49 +360,68 @@ class MtController extends Controller
 
         $year = $request->query('year', date('Y'));
         
-        $generus = Generus::where('kelompok', $kelompok)->get();
-        $generusIds = $generus->pluck('id')->toArray();
+        $generus = Generus::select([
+                'id', 'nama_lengkap', 'jenjang', 'status',
+                'is_pengurus', 'is_pengurus_muda_mudi', 'is_ketua_wakil_kelompok'
+            ])
+            ->where('kelompok', $kelompok)
+            ->get();
+        $generusIds = $generus->pluck('id')->all();
         
         $totalAnggota = $generus->count();
         $anggotaAktif = $generus->where('status', 'aktif')->count();
         
-        $eventsThisYear = Event::whereYear('event_date', $year)
+        $eventsThisYear = Event::select(['id', 'event_type_id'])
+            ->whereBetween('event_date', ["{$year}-01-01", "{$year}-12-31"])
             ->where(function($q) use ($kelompok) {
                 $q->whereNull('kelompok')->orWhere('kelompok', $kelompok);
             })->get();
         $totalAcara = $eventsThisYear->count();
+        $eventIdsThisYear = $eventsThisYear->pluck('id')->all();
         
-        $attendances = Attendance::whereIn('generus_id', $generusIds)
-            ->whereIn('event_id', $eventsThisYear->pluck('id'))
-            ->get();
+        $attendances = (!empty($generusIds) && !empty($eventIdsThisYear))
+            ? Attendance::select(['id', 'event_id', 'generus_id', 'status'])
+                ->whereIn('generus_id', $generusIds)
+                ->whereIn('event_id', $eventIdsThisYear)
+                ->get()
+            : collect();
             
-        $totalKehadiran = $attendances->where('status', 'hadir')->count();
-        $totalAbsen = $attendances->where('status', 'alpa')->count() + $attendances->where('status', 'izin')->count() + $attendances->where('status', 'sakit')->count();
+        $totalKehadiran = 0;
+        $totalAbsen = 0;
+        $attByGenerus = [];
+        $attByEvent = [];
+        foreach ($attendances as $att) {
+            if ($att->status === 'hadir') {
+                $totalKehadiran++;
+            } elseif (in_array($att->status, ['alpa', 'izin', 'sakit'], true)) {
+                $totalAbsen++;
+            }
+            $attByGenerus[$att->generus_id][] = $att;
+            $attByEvent[$att->event_id][] = $att;
+        }
         $totalAtt = $totalKehadiran + $totalAbsen;
         $rataKehadiran = $totalAtt > 0 ? round(($totalKehadiran / $totalAtt) * 100) : 0;
         
-        $jenjangDistribution = [];
+        $jenjangCounts = [];
         foreach ($generus as $g) {
             $j = $g->jenjang ?: 'Tanpa Jenjang';
-            $found = false;
-            foreach ($jenjangDistribution as &$item) {
-                if ($item['name'] === $j) {
-                    $item['value']++;
-                    $found = true;
-                    break;
-                }
-            }
-            unset($item);
-            if (!$found) {
-                $jenjangDistribution[] = ['name' => $j, 'value' => 1];
-            }
+            $jenjangCounts[$j] = ($jenjangCounts[$j] ?? 0) + 1;
+        }
+        $jenjangDistribution = [];
+        foreach ($jenjangCounts as $name => $value) {
+            $jenjangDistribution[] = ['name' => $name, 'value' => $value];
         }
         
         $memberStats = [];
         foreach ($generus as $g) {
-            $gAtts = $attendances->where('generus_id', $g->id);
-            $h = $gAtts->where('status', 'hadir')->count();
-            $tot = $gAtts->count();
+            $gAtts = $attByGenerus[$g->id] ?? [];
+            $tot = count($gAtts);
+            $h = 0;
+            foreach ($gAtts as $att) {
+                if ($att->status === 'hadir') {
+                    $h++;
+                }
+            }
             $memberStats[] = [
                 'nama_lengkap' => $g->nama_lengkap,
                 'jenjang' => $g->jenjang,
@@ -403,18 +435,32 @@ class MtController extends Controller
         }
         
         $perTypeStats = [];
-        $eventTypes = \App\Models\EventType::all();
+        $eventIdsByType = [];
+        foreach ($eventsThisYear as $ev) {
+            $eventIdsByType[$ev->event_type_id][] = $ev->id;
+        }
+        $eventTypes = \App\Models\EventType::select(['id', 'name'])->get();
         foreach ($eventTypes as $type) {
-            $typeEvents = $eventsThisYear->where('event_type_id', $type->id)->pluck('id')->toArray();
+            $typeEvents = $eventIdsByType[$type->id] ?? [];
             if (empty($typeEvents)) continue;
-            
-            $typeAtts = $attendances->whereIn('event_id', $typeEvents);
-            $totalEventAtts = $typeAtts->count();
+
+            $h = 0;
+            $a = 0;
+            $i = 0;
+            $totalEventAtts = 0;
+            foreach ($typeEvents as $evId) {
+                foreach ($attByEvent[$evId] ?? [] as $att) {
+                    $totalEventAtts++;
+                    if ($att->status === 'hadir') {
+                        $h++;
+                    } elseif ($att->status === 'alpa') {
+                        $a++;
+                    } elseif ($att->status === 'izin' || $att->status === 'sakit') {
+                        $i++;
+                    }
+                }
+            }
             if ($totalEventAtts > 0) {
-                $h = $typeAtts->where('status', 'hadir')->count();
-                $a = $typeAtts->where('status', 'alpa')->count();
-                $i = $typeAtts->whereIn('status', ['izin', 'sakit'])->count();
-                
                 $perTypeStats[] = [
                     'name' => $type->name,
                     'total_hadir' => $h,

@@ -15,7 +15,11 @@ class ReportController extends Controller
 {
     public function availableYears()
     {
-        $years = Event::selectRaw('YEAR(event_date) as year')
+        $yearExpr = \Illuminate\Support\Facades\DB::connection()->getDriverName() === 'sqlite'
+            ? "CAST(strftime('%Y', event_date) AS INTEGER) as year"
+            : 'YEAR(event_date) as year';
+
+        $years = Event::selectRaw($yearExpr)
             ->whereNotNull('event_date')
             ->distinct()
             ->orderBy('year', 'desc')
@@ -41,8 +45,9 @@ class ReportController extends Controller
 
         // Ambil semua event pada tahun dan tipe tersebut
         // Urutkan asc agar jika ada >1 event di bulan yang sama, event yang terakhir (override) yang dipakai
-        $events = Event::whereIn('event_type_id', $typeIds)
-            ->whereYear('event_date', $year)
+        $events = Event::select(['id', 'event_type_id', 'name', 'event_date', 'start_time', 'kelompok', 'is_closed'])
+            ->whereIn('event_type_id', $typeIds)
+            ->whereBetween('event_date', ["{$year}-01-01", "{$year}-12-31"])
             ->orderBy('event_date', 'asc')
             ->orderBy('start_time', 'asc')
             ->get();
@@ -60,12 +65,17 @@ class ReportController extends Controller
         }
         $targetKategori = array_unique($targetKategori);
 
-        // Ambil semua generus
+        // Ambil semua generus (kolom yang diperlukan saja)
         // Urutan: 
         // 1. Status (Aktif dulu, Nonaktif di bawah)
         // 2. Kelompok
         // 3. Jenjang (USMAN ke bawah sampai PAUD)
-        $generusQuery = Generus::orderByRaw("CASE WHEN status = 'Aktif' THEN 1 ELSE 2 END")
+        $generusQuery = Generus::select([
+                'id', 'nama_lengkap', 'jenjang', 'kelompok', 'status',
+                'umur', 'jenis_kelamin', 'is_pengurus',
+                'is_pengurus_muda_mudi', 'is_ketua_wakil_kelompok'
+            ])
+            ->orderByRaw("CASE WHEN status = 'Aktif' THEN 1 ELSE 2 END")
             ->orderBy('kelompok')
             ->orderByRaw("CASE 
                 WHEN jenjang = 'MT' THEN 0
@@ -106,28 +116,27 @@ class ReportController extends Controller
 
         $allGenerus = $generusQuery->get();
 
-        // Ambil semua absensi untuk event-event yang ditemukan
-        $attendances = Attendance::whereIn('event_id', $eventIds)->get();
+        // Ambil semua absensi untuk event-event yang ditemukan (lookup O(1) per sel)
+        $attLookup = [];
+        if (!empty($eventIds)) {
+            $attendances = Attendance::select(['event_id', 'generus_id', 'status'])
+                ->whereIn('event_id', $eventIds)
+                ->get();
 
-        // Kelompokkan absensi per generus_id
-        $attByGenerus = $attendances->groupBy('generus_id');
+            foreach ($attendances as $att) {
+                if (!isset($attLookup[$att->generus_id][$att->event_id])) {
+                    $attLookup[$att->generus_id][$att->event_id] = strtoupper(substr($att->status, 0, 1));
+                }
+            }
+        }
 
         $result = [];
         foreach ($allGenerus as $g) {
-            // Absensi milik generus ini
-            $gAtts = $attByGenerus->get($g->id) ?? collect();
+            $gAttMap = $attLookup[$g->id] ?? [];
             $eventStatus = [];
 
-            // Map status absensi berdasarkan event_id
             foreach ($events as $event) {
-                $record = $gAtts->firstWhere('event_id', $event->id);
-                if ($record) {
-                    $status = $record->status; 
-                    $initial = strtoupper(substr($status, 0, 1));
-                    $eventStatus[$event->id] = $initial;
-                } else {
-                    $eventStatus[$event->id] = '-'; 
-                }
+                $eventStatus[$event->id] = $gAttMap[$event->id] ?? '-';
             }
 
             $result[] = [

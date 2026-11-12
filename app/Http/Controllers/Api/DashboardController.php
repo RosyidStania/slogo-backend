@@ -16,51 +16,45 @@ class DashboardController extends Controller
     {
         try {
             // 1. Hitung Metrik Utama
-            $totalGenerus = Generus::count();
-            $aktifGenerus = Generus::where('status', 'aktif')->count();
-            $acaraBulanIni = Event::whereMonth('event_date', Carbon::now()->month)
-                                  ->whereYear('event_date', Carbon::now()->year)
-                                  ->count();
+            $now = Carbon::now();
+            $currentYear = $now->year;
+            $yearStart = "{$currentYear}-01-01";
+            $yearEnd = "{$currentYear}-12-31";
+
+            $generusStats = Generus::selectRaw("
+                COUNT(*) as total,
+                SUM(CASE WHEN status = 'aktif' THEN 1 ELSE 0 END) as aktif
+            ")->first();
+            $totalGenerus = (int) ($generusStats->total ?? 0);
+            $aktifGenerus = (int) ($generusStats->aktif ?? 0);
+
+            $acaraBulanIni = Event::whereBetween('event_date', [
+                $now->copy()->startOfMonth()->toDateString(),
+                $now->copy()->endOfMonth()->toDateString(),
+            ])->count();
 
             $eventTypeIds = $request->input('event_type_ids', []);
-            $currentYear = Carbon::now()->year;
 
             // ====================================================================
             // LOGIKA BARU: HITUNG PERSENTASE KEHADIRAN SESUAI STATUS (AKTIF/PASIF)
             // ====================================================================
-            
-            // A. Hitung Total Pembagi (Denominator)
-            // Diambil dari: Seluruh data absensi anggota 'aktif' + Data anggota 'pasif' TAPI KHUSUS yang 'hadir' saja
-            $totalValidAbsensi = Attendance::whereHas('event', function($q) use ($currentYear, $eventTypeIds) {
-                $q->whereYear('event_date', $currentYear);
-                if (!empty($eventTypeIds)) {
-                    $q->whereIn('event_type_id', $eventTypeIds);
-                }
-            })->where(function($query) {
-                // Kondisi 1: Milik Generus Aktif (apapun status absensinya: hadir/izin/alpa)
-                $query->whereHas('generus', function($q) {
-                    $q->where('status', 'aktif');
-                })
-                // Kondisi 2: Milik Generus Pasif (HANYA JIKA status absensinya 'hadir')
-                ->orWhere(function($q2) {
-                    $q2->where('status', 'hadir')
-                       ->whereHas('generus', function($q3) {
-                           $q3->where('status', 'pasif');
-                       });
-                });
-            })->count();
+            $attendanceAggQuery = DB::table('attendances')
+                ->join('events', 'attendances.event_id', '=', 'events.id')
+                ->join('generus', 'attendances.generus_id', '=', 'generus.id')
+                ->whereBetween('events.event_date', [$yearStart, $yearEnd])
+                ->whereIn('generus.status', ['aktif', 'pasif']);
 
-            // B. Hitung Total Hadir (Numerator)
-            // Diambil dari: Semua status 'hadir' milik anggota 'aktif' maupun 'pasif'
-            $totalHadir = Attendance::whereHas('event', function($q) use ($currentYear, $eventTypeIds) {
-                $q->whereYear('event_date', $currentYear);
-                if (!empty($eventTypeIds)) {
-                    $q->whereIn('event_type_id', $eventTypeIds);
-                }
-            })->where('status', 'hadir')
-                ->whereHas('generus', function($q) {
-                    $q->whereIn('status', ['aktif', 'pasif']);
-                })->count();
+            if (!empty($eventTypeIds)) {
+                $attendanceAggQuery->whereIn('events.event_type_id', $eventTypeIds);
+            }
+
+            $attendanceAgg = $attendanceAggQuery->selectRaw("
+                SUM(CASE WHEN generus.status = 'aktif' OR (generus.status = 'pasif' AND attendances.status = 'hadir') THEN 1 ELSE 0 END) as total_valid,
+                SUM(CASE WHEN attendances.status = 'hadir' THEN 1 ELSE 0 END) as total_hadir
+            ")->first();
+
+            $totalValidAbsensi = (int) ($attendanceAgg->total_valid ?? 0);
+            $totalHadir = (int) ($attendanceAgg->total_hadir ?? 0);
 
             // C. Kalkulasi Persentase
             $rataKehadiran = $totalValidAbsensi > 0 ? round(($totalHadir / $totalValidAbsensi) * 100) : 0;
@@ -81,7 +75,7 @@ class DashboardController extends Controller
                                ->get();
 
             // 4. Data Acara Terdekat (Hari ini ke depan, max 3 acara)
-            $upcomingEvents = Event::where('event_date', '>=', Carbon::today())
+            $upcomingEvents = Event::where('event_date', '>=', Carbon::today()->toDateString())
                                    ->orderBy('event_date', 'asc')
                                    ->take(3)
                                    ->get();
@@ -91,31 +85,42 @@ class DashboardController extends Controller
             // 5. Peringkat Kehadiran Individu (Top 5 Tahun Ini)
             $topAttendeesQuery = Attendance::where('attendances.status', 'hadir')
                 ->join('events', 'attendances.event_id', '=', 'events.id')
-                ->whereYear('events.event_date', Carbon::now()->year);
+                ->leftJoin('generus', 'attendances.generus_id', '=', 'generus.id')
+                ->whereBetween('events.event_date', [$yearStart, $yearEnd]);
 
             if (!empty($eventTypeIds)) {
                 $topAttendeesQuery->whereIn('events.event_type_id', $eventTypeIds);
             }
 
             if ($excludeMt) {
-                $topAttendeesQuery->whereHas('generus', function($q) {
-                    $q->where('jenjang', '!=', 'MT');
-                });
+                $topAttendeesQuery->where('generus.jenjang', '!=', 'MT');
             }
 
             $topAttendees = $topAttendeesQuery
-                ->select('attendances.generus_id', DB::raw('count(attendances.id) as total_hadir'))
-                ->groupBy('attendances.generus_id')
+                ->select(
+                    'attendances.generus_id',
+                    'generus.nama_lengkap',
+                    'generus.kelompok',
+                    'generus.jenjang',
+                    'generus.is_pengurus',
+                    DB::raw('count(attendances.id) as total_hadir')
+                )
+                ->groupBy(
+                    'attendances.generus_id',
+                    'generus.nama_lengkap',
+                    'generus.kelompok',
+                    'generus.jenjang',
+                    'generus.is_pengurus'
+                )
                 ->orderBy('total_hadir', 'desc')
                 ->take(5)
-                ->with('generus:id,nama_lengkap,kelompok,jenjang,is_pengurus')
                 ->get()
                 ->map(function ($item) {
                     return [
-                        'nama_lengkap' => $item->generus ? $item->generus->nama_lengkap : 'Terhapus',
-                        'kelompok' => $item->generus ? $item->generus->kelompok : '-',
-                        'jenjang' => $item->generus ? $item->generus->jenjang : '-',
-                        'is_pengurus' => $item->generus ? $item->generus->is_pengurus : 0,
+                        'nama_lengkap' => $item->nama_lengkap ?? 'Terhapus',
+                        'kelompok' => $item->kelompok ?? '-',
+                        'jenjang' => $item->jenjang ?? '-',
+                        'is_pengurus' => $item->is_pengurus ?? 0,
                         'total_hadir' => $item->total_hadir
                     ];
                 });
@@ -123,7 +128,7 @@ class DashboardController extends Controller
             // 6. Peringkat Kelompok Paling Aktif (Top 5 Tahun Ini)
             $topGroupsQuery = Attendance::where('attendances.status', 'hadir')
                 ->join('events', 'attendances.event_id', '=', 'events.id')
-                ->whereYear('events.event_date', Carbon::now()->year)
+                ->whereBetween('events.event_date', [$yearStart, $yearEnd])
                 ->join('generus', 'attendances.generus_id', '=', 'generus.id');
 
             if (!empty($eventTypeIds)) {

@@ -23,40 +23,61 @@ class UserDashboardController extends Controller
 
         $generusId = $user->generus->id;
 
-        // Hitung total kehadiran global
-        $totalKehadiran = Attendance::where('generus_id', $generusId)->count();
-        $totalHadir = Attendance::where('generus_id', $generusId)->where('status', 'hadir')->count();
-        $totalAlfa = Attendance::where('generus_id', $generusId)->where('status', 'alpa')->count();
-        $totalIzin = Attendance::where('generus_id', $generusId)->where('status', 'izin')->count();
-        $totalSakit = Attendance::where('generus_id', $generusId)->where('status', 'sakit')->count();
+        // Hitung total kehadiran global dalam 1 query agregat
+        $globalCounts = Attendance::where('generus_id', $generusId)
+            ->selectRaw("
+                COUNT(*) as total,
+                SUM(CASE WHEN status = 'hadir' THEN 1 ELSE 0 END) as hadir,
+                SUM(CASE WHEN status = 'alpa' THEN 1 ELSE 0 END) as alfa,
+                SUM(CASE WHEN status = 'izin' THEN 1 ELSE 0 END) as izin,
+                SUM(CASE WHEN status = 'sakit' THEN 1 ELSE 0 END) as sakit
+            ")
+            ->first();
 
-        // Rincian per tipe kegiatan
-        $eventTypes = EventType::all();
+        $totalKehadiran = (int) ($globalCounts->total ?? 0);
+        $totalHadir = (int) ($globalCounts->hadir ?? 0);
+        $totalAlfa = (int) ($globalCounts->alfa ?? 0);
+        $totalIzin = (int) ($globalCounts->izin ?? 0);
+        $totalSakit = (int) ($globalCounts->sakit ?? 0);
+
+        // Ambil seluruh riwayat absensi dengan JOIN agar tersortir di DB tanpa N+1 / whereHas loop
+        $attendances = Attendance::query()
+            ->join('events', 'attendances.event_id', '=', 'events.id')
+            ->where('attendances.generus_id', $generusId)
+            ->orderByDesc('events.event_date')
+            ->select('attendances.*')
+            ->with([
+                'event:id,name,event_date,event_type_id',
+                'event.eventType:id,name',
+            ])
+            ->get();
+
+        // Hitung rincian per tipe kegiatan dari data absensi yang sudah dimuat
+        $countsByType = [];
+        foreach ($attendances as $att) {
+            $typeId = $att->event?->event_type_id;
+            if (!$typeId) {
+                continue;
+            }
+            if (!isset($countsByType[$typeId])) {
+                $countsByType[$typeId] = ['hadir' => 0, 'alpa' => 0, 'izin' => 0, 'sakit' => 0];
+            }
+            if (isset($countsByType[$typeId][$att->status])) {
+                $countsByType[$typeId][$att->status]++;
+            }
+        }
+
+        $eventTypes = EventType::select('id', 'name')->get();
         $details = [];
-
         foreach ($eventTypes as $type) {
-            $typeId = $type->id;
-            
-            $hadir = Attendance::where('generus_id', $generusId)
-                ->whereHas('event', function($q) use ($typeId) {
-                    $q->where('event_type_id', $typeId);
-                })->where('status', 'hadir')->count();
-                
-            $alfa = Attendance::where('generus_id', $generusId)
-                ->whereHas('event', function($q) use ($typeId) {
-                    $q->where('event_type_id', $typeId);
-                })->where('status', 'alpa')->count();
-
-            $izin = Attendance::where('generus_id', $generusId)
-                ->whereHas('event', function($q) use ($typeId) {
-                    $q->where('event_type_id', $typeId);
-                })->where('status', 'izin')->count();
-
-            $sakit = Attendance::where('generus_id', $generusId)
-                ->whereHas('event', function($q) use ($typeId) {
-                    $q->where('event_type_id', $typeId);
-                })->where('status', 'sakit')->count();
-
+            $typeCounts = $countsByType[$type->id] ?? null;
+            if (!$typeCounts) {
+                continue;
+            }
+            $hadir = $typeCounts['hadir'];
+            $alfa = $typeCounts['alpa'];
+            $izin = $typeCounts['izin'];
+            $sakit = $typeCounts['sakit'];
             $total = $hadir + $alfa + $izin + $sakit;
 
             if ($total > 0) {
@@ -72,25 +93,17 @@ class UserDashboardController extends Controller
             }
         }
 
-        $history = Attendance::with(['event.eventType'])
-            ->where('generus_id', $generusId)
-            ->whereHas('event') // Skip orphaned attendances
-            ->get()
-            ->sortByDesc(function ($att) {
-                return $att->event->event_date;
-            })
-            ->values()
-            ->map(function ($att) {
-                return [
-                    'id' => $att->id,
-                    'date' => $att->event->event_date,
-                    'event_name' => $att->event->name,
-                    'event_type' => $att->event->eventType?->name ?? 'Kegiatan',
-                    'status' => $att->status,
-                    'time_arrived' => $att->time_arrived,
-                    'is_late' => $att->is_late,
-                ];
-            });
+        $history = $attendances->map(function ($att) {
+            return [
+                'id' => $att->id,
+                'date' => $att->event->event_date,
+                'event_name' => $att->event->name,
+                'event_type' => $att->event->eventType?->name ?? 'Kegiatan',
+                'status' => $att->status,
+                'time_arrived' => $att->time_arrived,
+                'is_late' => $att->is_late,
+            ];
+        })->values();
 
         return response()->json([
             'success' => true,
