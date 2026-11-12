@@ -2,8 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Models\Attendance;
 use App\Models\Event;
+use App\Models\EventType;
+use App\Models\Generus;
 use App\Models\GroupSchedule;
+use App\Models\User;
 use App\Services\ScheduledEventGenerator;
 use Carbon\Carbon;
 use Database\Seeders\GroupScheduleSeeder;
@@ -279,5 +283,209 @@ class ScheduledEventGeneratorTest extends TestCase
 
         $eventModel = Event::findOrFail($todayOpenId);
         $this->assertContains('auto_alpa_at', $eventModel->getFillable());
+    }
+
+    private function createGenerus(array $overrides = []): Generus
+    {
+        return Generus::create(array_merge([
+            'nama_lengkap' => 'Generus ' . uniqid(),
+            'jenis_kelamin' => 'L',
+            'kelompok' => 'Jekani',
+            'jenjang' => '1 SMP',
+            'status' => 'aktif',
+            'is_pengurus' => false,
+            'is_pengurus_muda_mudi' => false,
+            'is_ketua_wakil_kelompok' => false,
+        ], $overrides));
+    }
+
+    public function test_auto_alpa_marks_unrecorded_targets_exactly_at_2_hours_after_end_time(): void
+    {
+        $this->seed(GroupScheduleSeeder::class);
+        $generator = app(ScheduledEventGenerator::class);
+
+        $gHadir = $this->createGenerus(['nama_lengkap' => 'Hadir', 'jenjang' => '1 SMP', 'status' => 'aktif']);
+        $gIzin = $this->createGenerus(['nama_lengkap' => 'Izin', 'jenjang' => 'USMAN', 'status' => 'aktif']);
+        $gAlpaAktif = $this->createGenerus(['nama_lengkap' => 'Alpa Aktif', 'jenjang' => '2 SMP', 'status' => 'aktif']);
+        $gAlpaPasif = $this->createGenerus(['nama_lengkap' => 'Alpa Pasif', 'jenjang' => 'MT', 'status' => 'pasif']);
+        $gTidakAktif = $this->createGenerus(['nama_lengkap' => 'Nonaktif', 'jenjang' => '1 SMP', 'status' => 'tidak aktif']);
+        $gBedaJenjang = $this->createGenerus(['nama_lengkap' => 'SD', 'jenjang' => '6 SD', 'status' => 'aktif']);
+        $gBedaKelompok = $this->createGenerus(['nama_lengkap' => 'Slogo', 'kelompok' => 'Slogo', 'jenjang' => '1 SMP', 'status' => 'aktif']);
+
+        $generator->run(Carbon::parse('2026-11-10 17:45:00', 'Asia/Jakarta'));
+        $jekaniEvent = Event::where('kelompok', 'Jekani')->firstOrFail();
+
+        Attendance::create(['event_id' => $jekaniEvent->id, 'generus_id' => $gHadir->id, 'status' => 'hadir', 'time_arrived' => '18:10', 'is_late' => false]);
+        Attendance::create(['event_id' => $jekaniEvent->id, 'generus_id' => $gIzin->id, 'status' => 'izin', 'time_arrived' => null, 'is_late' => false]);
+
+        $resBefore = $generator->run(Carbon::parse('2026-11-10 20:59:00', 'Asia/Jakarta'));
+        $this->assertEquals(0, $resBefore['alpa_marked']);
+        $this->assertNull($jekaniEvent->fresh()->auto_alpa_at);
+        $this->assertEquals(2, Attendance::where('event_id', $jekaniEvent->id)->count());
+
+        $resAt = $generator->run(Carbon::parse('2026-11-10 21:00:00', 'Asia/Jakarta'));
+        $this->assertEquals(2, $resAt['alpa_marked']);
+        $this->assertNotNull($jekaniEvent->fresh()->auto_alpa_at);
+        $this->assertDatabaseHas('attendances', ['event_id' => $jekaniEvent->id, 'generus_id' => $gAlpaAktif->id, 'status' => 'alpa', 'time_arrived' => null, 'is_late' => false]);
+        $this->assertDatabaseHas('attendances', ['event_id' => $jekaniEvent->id, 'generus_id' => $gAlpaPasif->id, 'status' => 'alpa', 'time_arrived' => null, 'is_late' => false]);
+        $this->assertDatabaseHas('attendances', ['event_id' => $jekaniEvent->id, 'generus_id' => $gHadir->id, 'status' => 'hadir']);
+        $this->assertDatabaseHas('attendances', ['event_id' => $jekaniEvent->id, 'generus_id' => $gIzin->id, 'status' => 'izin']);
+        $this->assertDatabaseMissing('attendances', ['event_id' => $jekaniEvent->id, 'generus_id' => $gTidakAktif->id]);
+        $this->assertDatabaseMissing('attendances', ['event_id' => $jekaniEvent->id, 'generus_id' => $gBedaJenjang->id]);
+        $this->assertDatabaseMissing('attendances', ['event_id' => $jekaniEvent->id, 'generus_id' => $gBedaKelompok->id]);
+    }
+
+    public function test_auto_alpa_runs_only_once_and_ignores_generus_added_5_hours_later(): void
+    {
+        $this->seed(GroupScheduleSeeder::class);
+        $generator = app(ScheduledEventGenerator::class);
+
+        $g1 = $this->createGenerus(['nama_lengkap' => 'Peserta Satu', 'jenjang' => '1 SMP']);
+        $g2 = $this->createGenerus(['nama_lengkap' => 'Peserta Dua', 'jenjang' => '1 SMP']);
+
+        $generator->run(Carbon::parse('2026-11-10 17:45:00', 'Asia/Jakarta'));
+        $jekaniEvent = Event::where('kelompok', 'Jekani')->firstOrFail();
+        Attendance::create(['event_id' => $jekaniEvent->id, 'generus_id' => $g1->id, 'status' => 'hadir', 'time_arrived' => '18:10', 'is_late' => false]);
+
+        $res1 = $generator->run(Carbon::parse('2026-11-10 21:00:00', 'Asia/Jakarta'));
+        $this->assertEquals(1, $res1['alpa_marked']);
+
+        try {
+            Carbon::setTestNow(Carbon::parse('2026-11-11 02:00:00', 'Asia/Jakarta'));
+            $gBaru = $this->createGenerus(['nama_lengkap' => 'Generus Baru', 'jenjang' => '1 SMP']);
+
+            $res2 = $generator->run(Carbon::parse('2026-11-11 02:00:00', 'Asia/Jakarta'));
+            $this->assertEquals(0, $res2['alpa_marked']);
+
+            $admin = User::create(['name' => 'Admin', 'username' => 'adm_' . uniqid(), 'password' => bcrypt('password'), 'role' => 'admin']);
+            $this->actingAs($admin)->getJson('/api/admin/events')->assertOk();
+        } finally {
+            Carbon::setTestNow();
+        }
+
+        $this->assertDatabaseMissing('attendances', ['event_id' => $jekaniEvent->id, 'generus_id' => $gBaru->id]);
+        $this->assertEquals(1, Attendance::where('event_id', $jekaniEvent->id)->where('generus_id', $g2->id)->count());
+    }
+
+    public function test_auto_alpa_skips_events_with_zero_attendances_and_does_not_retrigger_if_reopened(): void
+    {
+        $this->seed(GroupScheduleSeeder::class);
+        $generator = app(ScheduledEventGenerator::class);
+
+        $g1 = $this->createGenerus(['nama_lengkap' => 'Peserta Satu', 'jenjang' => '1 SMP']);
+        $g2 = $this->createGenerus(['nama_lengkap' => 'Peserta Dua', 'jenjang' => '1 SMP']);
+
+        $generator->run(Carbon::parse('2026-11-10 17:45:00', 'Asia/Jakarta'));
+        $jekaniEvent = Event::where('kelompok', 'Jekani')->firstOrFail();
+
+        $res = $generator->run(Carbon::parse('2026-11-10 21:00:00', 'Asia/Jakarta'));
+        $this->assertEquals(0, $res['alpa_marked']);
+        $this->assertTrue((bool) $jekaniEvent->fresh()->is_closed);
+        $this->assertNotNull($jekaniEvent->fresh()->auto_alpa_at);
+        $this->assertEquals(0, Attendance::where('event_id', $jekaniEvent->id)->count());
+
+        $admin = User::create(['name' => 'Admin', 'username' => 'adm_' . uniqid(), 'password' => bcrypt('password'), 'role' => 'admin']);
+        $this->actingAs($admin)->patchJson("/api/admin/events/{$jekaniEvent->id}/toggle-status")->assertOk();
+        Attendance::create(['event_id' => $jekaniEvent->id, 'generus_id' => $g1->id, 'status' => 'hadir', 'time_arrived' => '21:31', 'is_late' => true]);
+
+        $resLater = $generator->run(Carbon::parse('2026-11-10 21:35:00', 'Asia/Jakarta'));
+        $this->assertEquals(0, $resLater['alpa_marked']);
+        $this->assertDatabaseMissing('attendances', ['event_id' => $jekaniEvent->id, 'generus_id' => $g2->id]);
+    }
+
+    public function test_early_manual_close_before_2h_still_auto_alpas_once_and_post_2h_reopen_correction_stays_safe(): void
+    {
+        $this->seed(GroupScheduleSeeder::class);
+        $generator = app(ScheduledEventGenerator::class);
+
+        $g1 = $this->createGenerus(['nama_lengkap' => 'Peserta Satu', 'jenjang' => '1 SMP']);
+        $g2 = $this->createGenerus(['nama_lengkap' => 'Peserta Dua', 'jenjang' => '1 SMP']);
+
+        $generator->run(Carbon::parse('2026-11-10 17:45:00', 'Asia/Jakarta'));
+        $jekaniEvent = Event::where('kelompok', 'Jekani')->firstOrFail();
+        Attendance::create(['event_id' => $jekaniEvent->id, 'generus_id' => $g1->id, 'status' => 'hadir', 'time_arrived' => '18:10', 'is_late' => false]);
+
+        $admin = User::create(['name' => 'Admin', 'username' => 'adm_' . uniqid(), 'password' => bcrypt('password'), 'role' => 'admin']);
+        $this->actingAs($admin)->patchJson("/api/admin/events/{$jekaniEvent->id}/toggle-status")->assertOk()->assertJson(['is_closed' => true]);
+
+        $res = $generator->run(Carbon::parse('2026-11-10 21:00:00', 'Asia/Jakarta'));
+        $this->assertEquals(1, $res['alpa_marked']);
+        $this->assertDatabaseHas('attendances', ['event_id' => $jekaniEvent->id, 'generus_id' => $g2->id, 'status' => 'alpa']);
+
+        $this->actingAs($admin)->patchJson("/api/admin/events/{$jekaniEvent->id}/toggle-status")->assertOk()->assertJson(['is_closed' => false]);
+        Attendance::where('event_id', $jekaniEvent->id)->where('generus_id', $g2->id)->delete();
+
+        $resAfter = $generator->run(Carbon::parse('2026-11-10 21:35:00', 'Asia/Jakarta'));
+        $this->assertEquals(0, $resAfter['alpa_marked']);
+        $this->assertFalse((bool) $jekaniEvent->fresh()->is_closed);
+        $this->assertDatabaseMissing('attendances', ['event_id' => $jekaniEvent->id, 'generus_id' => $g2->id]);
+    }
+
+    public function test_auto_alpa_handles_cross_midnight_event_and_event_type_fallback_with_pengurus(): void
+    {
+        $eventType = EventType::create([
+            'name' => 'Malam Keakraban',
+            'code' => 'MAKRAB',
+            'start_time' => '22:30:00',
+            'target_kategori' => ['PENGURUS USMAN', '1 SMP'],
+            'is_group_attendance' => false,
+        ]);
+
+        $event = Event::create([
+            'name' => 'Malam Keakraban',
+            'event_date' => '2026-11-10',
+            'start_time' => '22:30:00',
+            'end_time' => '00:30:00',
+            'target_kategori' => json_encode([]),
+            'event_type_id' => $eventType->id,
+            'kelompok' => null,
+            'is_closed' => false,
+        ]);
+
+        $gHadir = $this->createGenerus(['nama_lengkap' => 'Hadir SMP', 'kelompok' => 'Slogo', 'jenjang' => '1 SMP']);
+        $gPengurus = $this->createGenerus(['nama_lengkap' => 'Pengurus Usman', 'kelompok' => 'Gawan', 'jenjang' => 'USMAN']);
+        $usmanType = \App\Models\PengurusType::where('code', 'PENGURUS_USMAN')->firstOrFail();
+        $gPengurus->syncPengurusTypes([$usmanType->id]);
+        $gNonTarget = $this->createGenerus(['nama_lengkap' => 'Bukan Pengurus', 'kelompok' => 'Gawan', 'jenjang' => 'USMAN']);
+
+        Attendance::create(['event_id' => $event->id, 'generus_id' => $gHadir->id, 'status' => 'hadir', 'time_arrived' => '22:25', 'is_late' => false]);
+
+        $generator = app(ScheduledEventGenerator::class);
+        $resBefore = $generator->run(Carbon::parse('2026-11-11 02:29:00', 'Asia/Jakarta'));
+        $this->assertEquals(0, $resBefore['closed']);
+        $this->assertEquals(0, $resBefore['alpa_marked']);
+
+        $resAt = $generator->run(Carbon::parse('2026-11-11 02:30:00', 'Asia/Jakarta'));
+        $this->assertEquals(1, $resAt['closed']);
+        $this->assertEquals(1, $resAt['alpa_marked']);
+        $this->assertDatabaseHas('attendances', ['event_id' => $event->id, 'generus_id' => $gPengurus->id, 'status' => 'alpa']);
+        $this->assertDatabaseMissing('attendances', ['event_id' => $event->id, 'generus_id' => $gNonTarget->id]);
+    }
+
+    public function test_atomic_claim_and_artisan_command_output_when_already_claimed(): void
+    {
+        $this->seed(GroupScheduleSeeder::class);
+        $generator = app(ScheduledEventGenerator::class);
+
+        $g1 = $this->createGenerus(['nama_lengkap' => 'Peserta Satu', 'jenjang' => '1 SMP']);
+        $g2 = $this->createGenerus(['nama_lengkap' => 'Peserta Dua', 'jenjang' => '1 SMP']);
+
+        $generator->run(Carbon::parse('2026-11-10 17:45:00', 'Asia/Jakarta'));
+        $jekaniEvent = Event::where('kelompok', 'Jekani')->firstOrFail();
+        Attendance::create(['event_id' => $jekaniEvent->id, 'generus_id' => $g1->id, 'status' => 'hadir', 'time_arrived' => '18:10', 'is_late' => false]);
+
+        $jekaniEvent->update(['auto_alpa_at' => Carbon::now()]);
+
+        try {
+            Carbon::setTestNow(Carbon::parse('2026-11-10 21:00:00', 'Asia/Jakarta'));
+            $this->artisan('events:generate-scheduled')
+                ->expectsOutputToContain('peserta dialpakan')
+                ->assertExitCode(0);
+        } finally {
+            Carbon::setTestNow();
+        }
+
+        $this->assertTrue((bool) $jekaniEvent->fresh()->is_closed);
+        $this->assertDatabaseMissing('attendances', ['event_id' => $jekaniEvent->id, 'generus_id' => $g2->id]);
     }
 }

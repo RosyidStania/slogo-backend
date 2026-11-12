@@ -28,7 +28,7 @@ class GenerateScheduledEventsCommand extends Command
     {
         $result = $generator->run();
 
-        $this->info("Scheduled event check selesai: {$result['created']} acara dibuat, {$result['closed']} acara ditutup.");
+        $this->info("Scheduled event check selesai: {$result['created']} acara dibuat, {$result['closed']} acara ditutup, {$result['alpa_marked']} peserta dialpakan.");
 
         return self::SUCCESS;
     }

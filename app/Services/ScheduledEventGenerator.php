@@ -2,10 +2,14 @@
 
 namespace App\Services;
 
+use App\Models\Attendance;
 use App\Models\Event;
+use App\Models\Generus;
 use App\Models\GroupSchedule;
+use App\Support\TargetKategoriFilter;
 use Carbon\Carbon;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\DB;
 
 class ScheduledEventGenerator
 {
@@ -18,10 +22,11 @@ class ScheduledEventGenerator
     ];
 
     /**
-     * Generate scheduled events that are due and auto-close events that have ended.
+     * Generate scheduled events that are due, auto-close expired events,
+     * and auto-mark remaining unrecorded target generus as alpa once.
      *
      * @param Carbon|null $now
-     * @return array{created: int, closed: int}
+     * @return array{created: int, closed: int, alpa_marked: int}
      */
     public function run(?Carbon $now = null): array
     {
@@ -29,10 +34,12 @@ class ScheduledEventGenerator
 
         $created = $this->generateDueEvents($nowWib);
         $closed = $this->autoCloseExpiredEvents($nowWib);
+        $alpaMarked = $this->autoAlpaExpiredEvents($nowWib);
 
         return [
             'created' => $created,
             'closed' => $closed,
+            'alpa_marked' => $alpaMarked,
         ];
     }
 
@@ -146,17 +153,7 @@ class ScheduledEventGenerator
         $closedCount = 0;
 
         foreach ($openEvents as $event) {
-            $eventDate = Carbon::parse($event->event_date)->toDateString();
-            $startAt = Carbon::parse($eventDate . ' ' . $event->start_time, self::TIMEZONE);
-            $endAt = Carbon::parse($eventDate . ' ' . $event->end_time, self::TIMEZONE);
-            if ($endAt->lessThanOrEqualTo($startAt)) {
-                $endAt->addDay();
-            }
-
-            $autoCloseMinutes = $event->groupSchedule?->auto_close_minutes ?? 120;
-            $closeAt = $endAt->copy()->addMinutes($autoCloseMinutes);
-
-            if ($nowWib->greaterThanOrEqualTo($closeAt)) {
+            if ($nowWib->greaterThanOrEqualTo($this->resolveEventCloseAt($event))) {
                 $event->is_closed = true;
                 $event->auto_closed_at = Carbon::now();
                 $event->save();
@@ -165,5 +162,145 @@ class ScheduledEventGenerator
         }
 
         return $closedCount;
+    }
+
+    /**
+     * Hitung waktu kedaluwarsa acara (end_time + auto_close_minutes) dalam zona WIB.
+     */
+    protected function resolveEventCloseAt(Event $event): Carbon
+    {
+        $eventDate = Carbon::parse($event->event_date)->toDateString();
+        $endAt = Carbon::parse($eventDate . ' ' . $event->end_time, self::TIMEZONE);
+
+        if (! empty($event->start_time)) {
+            $startAt = Carbon::parse($eventDate . ' ' . $event->start_time, self::TIMEZONE);
+            if ($endAt->lessThanOrEqualTo($startAt)) {
+                $endAt->addDay();
+            }
+        }
+
+        $autoCloseMinutes = $event->groupSchedule?->auto_close_minutes ?? 120;
+
+        return $endAt->copy()->addMinutes($autoCloseMinutes);
+    }
+
+    /**
+     * Evaluasi satu kali acara yang telah melewati batas waktu auto-close untuk
+     * menandai sisa target generus yang belum memiliki data presensi sebagai alpa.
+     */
+    protected function autoAlpaExpiredEvents(Carbon $nowWib): int
+    {
+        $pendingEvents = Event::with(['groupSchedule', 'eventType'])
+            ->whereNull('auto_alpa_at')
+            ->whereNotNull('end_time')
+            ->get();
+
+        $alpaMarkedCount = 0;
+
+        foreach ($pendingEvents as $event) {
+            if ($nowWib->greaterThanOrEqualTo($this->resolveEventCloseAt($event))) {
+                $alpaMarkedCount += $this->markRemainingTargetsAlpa($event);
+            }
+        }
+
+        return $alpaMarkedCount;
+    }
+
+    /**
+     * Klaim acara secara atomik dan sisipkan status alpa bagi sisa target yang belum absen.
+     */
+    protected function markRemainingTargetsAlpa(Event $event): int
+    {
+        return DB::transaction(function () use ($event): int {
+            $nowTimestamp = Carbon::now();
+
+            // Klaim satu kali secara atomik untuk mencegah duplikasi pada eksekusi konkuren.
+            $claimed = Event::where('id', $event->id)
+                ->whereNull('auto_alpa_at')
+                ->update(['auto_alpa_at' => $nowTimestamp]);
+
+            if ($claimed !== 1) {
+                return 0;
+            }
+
+            $existingGenerusIds = Attendance::where('event_id', $event->id)
+                ->pluck('generus_id')
+                ->all();
+
+            // Acara tanpa presensi sama sekali (mis. libur/dibatalkan) tidak dibuatkan alpa.
+            if (empty($existingGenerusIds)) {
+                return 0;
+            }
+
+            $recordedLookup = array_flip(array_filter(
+                $existingGenerusIds,
+                fn ($id) => is_int($id) || is_string($id)
+            ));
+
+            $query = Generus::select([
+                'id',
+                'kelompok',
+                'jenjang',
+                'status',
+                'is_pengurus',
+                'is_pengurus_muda_mudi',
+                'is_ketua_wakil_kelompok',
+            ])
+                ->with('pengurusTypes:id,name,code')
+                ->whereRaw("LOWER(status) IN ('aktif', 'pasif')");
+
+            if (trim((string) $event->kelompok) !== '') {
+                $normalizedKelompok = mb_strtolower(trim((string) $event->kelompok), 'UTF-8');
+                $query->whereRaw('LOWER(TRIM(kelompok)) = ?', [$normalizedKelompok]);
+            }
+
+            $candidates = $query->get()
+                ->reject(fn (Generus $generus) => isset($recordedLookup[$generus->id]))
+                ->values();
+
+            $targets = TargetKategoriFilter::filter($candidates, $this->resolveEventTargetKategori($event));
+
+            if ($targets->isEmpty()) {
+                return 0;
+            }
+
+            $rows = $targets->map(fn (Generus $generus): array => [
+                'event_id' => $event->id,
+                'generus_id' => $generus->id,
+                'status' => 'alpa',
+                'time_arrived' => null,
+                'is_late' => false,
+                'created_at' => $nowTimestamp,
+                'updated_at' => $nowTimestamp,
+            ])->all();
+
+            foreach (array_chunk($rows, 500) as $chunk) {
+                Attendance::insert($chunk);
+            }
+
+            return count($rows);
+        });
+    }
+
+    /**
+     * Resolve daftar target_kategori acara dengan fallback ke template eventType.
+     *
+     * @return array<int, mixed>
+     */
+    protected function resolveEventTargetKategori(Event $event): array
+    {
+        $rawTarget = $event->target_kategori;
+        $targetKategori = is_string($rawTarget)
+            ? (json_decode($rawTarget, true) ?? [])
+            : (is_array($rawTarget) ? $rawTarget : []);
+
+        if (empty($targetKategori) && $event->eventType) {
+            $typeTarget = $event->eventType->target_kategori;
+            $targetKategori = is_string($typeTarget)
+                ? (json_decode($typeTarget, true) ?? [])
+                : (is_array($typeTarget) ? $typeTarget : []);
+        }
+
+        return is_array($targetKategori) ? $targetKategori : [];
     }
 }
