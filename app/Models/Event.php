@@ -22,12 +22,15 @@ class Event extends Model
         'kelompok',
         'infaq',
         'is_closed',
-        'auto_closed_at'
+        'auto_closed_at',
+        'auto_alpa_at',
     ];
 
     protected $casts = [
         'allow_other_participants' => 'boolean',
         'is_closed' => 'boolean',
+        'auto_closed_at' => 'datetime',
+        'auto_alpa_at' => 'datetime',
     ];
 
     public function eventType()

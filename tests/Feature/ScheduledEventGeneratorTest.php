@@ -18,20 +18,29 @@ class ScheduledEventGeneratorTest extends TestCase
 
         // Jalankan hanya migrasi yang relevan dan kompatibel dengan SQLite in-memory
         $migrations = [
+            'database/migrations/2026_05_15_123233_create_generuses_table.php',
             'database/migrations/2026_05_16_101334_create_events_table.php',
+            'database/migrations/2026_05_16_101335_create_attendances_table.php',
             'database/migrations/2026_05_16_104305_add_target_kategori_to_events_table.php',
             'database/migrations/2026_05_17_174305_create_event_types_table.php',
             'database/migrations/2026_05_17_174338_add_event_type_id_to_events_table.php',
             'database/migrations/2026_05_17_175934_add_template_fields_to_event_types_table.php',
             'database/migrations/2026_05_17_181932_add_event_type_id_to_events_table.php',
+            'database/migrations/2026_07_29_195225_add_user_id_to_generus_table.php',
+            'database/migrations/2026_08_06_104335_add_kode_unik_to_generus_table.php',
+            'database/migrations/2026_08_18_203140_add_is_pengurus_to_generus_table.php',
             'database/migrations/2026_08_30_190132_add_is_closed_to_events_table.php',
+            'database/migrations/2026_09_02_082219_add_is_pengurus_muda_mudi_to_generus_table.php',
             'database/migrations/2026_09_02_110324_add_allow_other_participants_to_events_table.php',
+            'database/migrations/2026_09_02_111505_add_is_ketua_wakil_kelompok_to_generus_table.php',
             'database/migrations/2026_10_03_131233_add_kelompok_to_users_and_events_table.php',
             'database/migrations/2026_10_03_135857_add_is_group_attendance_to_event_types_table.php',
             'database/migrations/2026_10_04_032139_add_infaq_to_events_table.php',
             'database/migrations/2026_11_07_224500_create_group_schedules_table.php',
             'database/migrations/2026_11_07_224501_add_schedule_fields_to_events_table.php',
             'database/migrations/2026_11_08_021500_add_generation_tracking_columns.php',
+            'database/migrations/2026_11_09_161500_create_pengurus_tables_and_migrate_data.php',
+            'database/migrations/2026_11_12_150000_add_auto_alpa_at_to_events_table.php',
         ];
 
         Artisan::call('migrate', ['--path' => 'database/migrations/0001_01_01_000000_create_users_table.php']);
@@ -205,5 +214,70 @@ class ScheduledEventGeneratorTest extends TestCase
         $generator->run(Carbon::parse('2026-11-10 19:45:00', 'Asia/Jakarta'));
 
         $this->assertEquals(2, Event::where('kelompok', 'Jekani')->count());
+    }
+
+    public function test_migration_backfills_auto_alpa_at_only_for_closed_or_past_events(): void
+    {
+        $migrationPath = database_path('migrations/2026_11_12_150000_add_auto_alpa_at_to_events_table.php');
+        $migration = require $migrationPath;
+        $migration->down();
+
+        $todayWib = Carbon::now('Asia/Jakarta')->toDateString();
+        $yesterdayWib = Carbon::now('Asia/Jakarta')->subDay()->toDateString();
+
+        $pastOpenId = \Illuminate\Support\Facades\DB::table('events')->insertGetId([
+            'name' => 'Acara Kemarin',
+            'event_date' => $yesterdayWib,
+            'start_time' => '18:30:00',
+            'end_time' => '20:00:00',
+            'is_closed' => false,
+            'auto_closed_at' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $todayClosedId = \Illuminate\Support\Facades\DB::table('events')->insertGetId([
+            'name' => 'Acara Hari Ini Ditutup',
+            'event_date' => $todayWib,
+            'start_time' => '08:00:00',
+            'end_time' => '09:00:00',
+            'is_closed' => true,
+            'auto_closed_at' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $todayReopenedId = \Illuminate\Support\Facades\DB::table('events')->insertGetId([
+            'name' => 'Acara Hari Ini Dibuka Ulang',
+            'event_date' => $todayWib,
+            'start_time' => '09:00:00',
+            'end_time' => '10:00:00',
+            'is_closed' => false,
+            'auto_closed_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $todayOpenId = \Illuminate\Support\Facades\DB::table('events')->insertGetId([
+            'name' => 'Acara Hari Ini Aktif',
+            'event_date' => $todayWib,
+            'start_time' => '19:30:00',
+            'end_time' => '21:00:00',
+            'is_closed' => false,
+            'auto_closed_at' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $migration->up();
+
+        $this->assertTrue(\Illuminate\Support\Facades\Schema::hasColumn('events', 'auto_alpa_at'));
+        $this->assertNotNull(\Illuminate\Support\Facades\DB::table('events')->where('id', $pastOpenId)->value('auto_alpa_at'));
+        $this->assertNotNull(\Illuminate\Support\Facades\DB::table('events')->where('id', $todayClosedId)->value('auto_alpa_at'));
+        $this->assertNotNull(\Illuminate\Support\Facades\DB::table('events')->where('id', $todayReopenedId)->value('auto_alpa_at'));
+        $this->assertNull(\Illuminate\Support\Facades\DB::table('events')->where('id', $todayOpenId)->value('auto_alpa_at'));
+
+        $eventModel = Event::findOrFail($todayOpenId);
+        $this->assertContains('auto_alpa_at', $eventModel->getFillable());
     }
 }
